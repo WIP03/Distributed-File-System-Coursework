@@ -36,5 +36,7 @@ public class Dstore {
             System.err.println("Not all arguments inputted: " + exception);
             return;
         }
+
+        ////CLEAR THE FILE FOLDER HERE
     }
 }

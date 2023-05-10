@@ -1,4 +1,4 @@
-public class Controller {
+import java.util.ArrayList;import java.util.HashMap;public class Controller {
 
     /**
      * Port for the controller to listen to.
@@ -21,6 +21,18 @@ public class Controller {
     private static String rebalancePeriod;
 
     /**
+     * Contains all the current files in the system and the current operations they are going under.
+     * HashMap paring goes as follows [FILE, CONTEXT].
+     */
+    private static HashMap<String,String> indexes;
+
+    /**
+     * Contains all the ports for the connected Dstore's and the files each Dstore has.
+     * HashMap paring goes as follows [DSTORE_PORT, FILES].
+     */
+    private static HashMap<String,ArrayList<String>> dstores;
+
+    /**
      * Main setup of the controller, setups up its main values then stats the programs main loop.
      * @param args Values which are used in setting up the controller.
      */
@@ -32,6 +44,8 @@ public class Controller {
             replicationFactor = args[1];
             timeoutMilliseconds = args[2];
             rebalancePeriod = args[3];
+            indexes = new HashMap<String, String>();
+            dstores = new HashMap<String, ArrayList<String>>();
         } catch (Exception exception) {
             System.err.println("Not all arguments inputted: " + exception);
             return;
