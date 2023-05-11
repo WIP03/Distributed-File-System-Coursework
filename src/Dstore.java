@@ -1,3 +1,5 @@
+import java.io.File;
+
 public class Dstore {
 
     /**
@@ -37,8 +39,10 @@ public class Dstore {
             return;
         }
 
-        // If succesful in generating the values for the Dstore then all its old data is removed.
-        clearFileFolder();
+        // If succesful in generating the values for the Dstore then all its old data is removed (if the folder exists).
+        File folder = new File(fileFolder);
+        if (!folder.exists()) {folder.mkdir();}
+        else {clearFileFolder(folder);}
 
         // JOIN THE CONTROLLER
         // LOOP AROUND WAITING FOR MESSAGES ON ITS PORT, IF ONE IS RECIEVED AND NOT FROM A PORT BEING USED (APART FROM CONTROLLER) THEN PARSE ITS MESSAGE
@@ -46,8 +50,20 @@ public class Dstore {
 
     /**
      * Clears the file folder removing all of its current contents.
+     * @param folder The folder the contents we want to remove are in.
      */
-    private static void clearFileFolder(){} //FINNISH ME
+    private static void clearFileFolder(File folder) {
+        // Gets all the files and folders that exits in the current directory.
+        File[] files = folder.listFiles();
+
+        // Check if the folder contains files, if so loops through them removing them.
+        if(files != null) {
+            for(File f: files) {
+                if(f.isDirectory()) {clearFileFolder(f);} // Checks for folders (probably not needed but is good to have).
+                f.delete(); // Removes that file/folder from the folder.
+            }
+        }
+    }
 
     /**
      * Function which is used to parse the messages sent by a Client or the Controller.
