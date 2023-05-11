@@ -53,6 +53,8 @@ public class Controller {
             System.err.println("Not all arguments inputted: " + exception);
             return;
         }
+
+        // Loop waiting for a client to send a command or Dstore to join.
     }
 
     /**

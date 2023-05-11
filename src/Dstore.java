@@ -39,6 +39,9 @@ public class Dstore {
 
         // If succesful in generating the values for the Dstore then all its old data is removed.
         clearFileFolder();
+
+        // JOIN THE CONTROLLER
+        // LOOP AROUND WAITING FOR MESSAGES ON ITS PORT, IF ONE IS RECIEVED AND NOT FROM A PORT BEING USED (APART FROM CONTROLLER) THEN PARSE ITS MESSAGE
     }
 
     /**
