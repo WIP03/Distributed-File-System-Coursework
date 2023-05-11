@@ -1,4 +1,7 @@
-import java.util.ArrayList;import java.util.HashMap;public class Controller {
+import java.util.ArrayList;
+import java.util.HashMap;
+
+public class Controller {
 
     /**
      * Port for the controller to listen to.
@@ -49,6 +52,25 @@ import java.util.ArrayList;import java.util.HashMap;public class Controller {
         } catch (Exception exception) {
             System.err.println("Not all arguments inputted: " + exception);
             return;
+        }
+    }
+
+    /**
+     * Function which is used to parse the messages sent by a Client and or Dstore.
+     * @param message
+     */
+    private static void messageParser(String message, String port) {
+        // Splits the inputted message into an array.
+        String messageArgs[] = message.split(" ");
+
+        // Uses switch to check which message the port sent and run the required function.
+        switch(messageArgs[0]) {
+            case Protocol.STORE_TOKEN -> {/*COMMAND DUMMY HERE*/ break;}  // When a client wants a files to be store in the system.
+            case Protocol.LOAD_TOKEN -> {/*COMMAND DUMMY HERE*/ break;}   // When a client wants to get a file from the system (need to check for reload in function).
+            case Protocol.REMOVE_TOKEN -> {/*COMMAND DUMMY HERE*/ break;} // When a client wants a file to be removed from the system.
+            case Protocol.LIST_TOKEN -> {/*COMMAND DUMMY HERE*/ break;}   // When a client wants a list of all files in the system.
+            case Protocol.JOIN_TOKEN -> {/*COMMAND DUMMY HERE*/ break;}   // When a Dstore joins the controller.
+            default -> {System.err.println("Malformed message [" + messageArgs + "] recieved from [Port:" + port + "]."); break;} // Malformed message is recieved.
         }
     }
 }

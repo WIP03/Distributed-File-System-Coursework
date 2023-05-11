@@ -1,7 +1,7 @@
 /**
  * Contains all protocols for the system.
  */
-public class Protocol {
+public abstract class Protocol {
 
     //CLient protocol messages
     public final static String LIST_TOKEN = "LIST"; // Also for Controller and DStore.

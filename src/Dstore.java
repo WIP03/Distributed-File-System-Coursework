@@ -37,6 +37,12 @@ public class Dstore {
             return;
         }
 
-        ////CLEAR THE FILE FOLDER HERE
+        // If succesful in generating the values for the Dstore then all its old data is removed.
+        clearFileFolder();
     }
+
+    /**
+     * Clears the file folder removing all of its current contents.
+     */
+    private static void clearFileFolder(){} //FINNISH ME
 }
