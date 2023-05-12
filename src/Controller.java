@@ -1,27 +1,28 @@
+import java.io.BufferedReader;import java.io.IOException;import java.io.InputStreamReader;import java.net.ServerSocket;import java.net.Socket;
 import java.util.ArrayList;
 import java.util.HashMap;
 
 public class Controller {
 
     /**
-     * Port for the controller to listen to.
+     * The socket which the controller is using to communicate with different clients and Dstores.
      */
-    private static String controllerPort;
+    private static ServerSocket controllerSocket;
 
     /**
      * The number of Dstores which should be used to store a file.
      */
-    private static String replicationFactor;
+    private static Integer replicationFactor;
 
     /**
      * The time between process and the response its waiting for.
      */
-    private static String timeoutMilliseconds;
+    private static Integer timeoutMilliseconds;
 
     /**
      * The amount of seconds between rebalance periods.
      */
-    private static String rebalancePeriod;
+    private static Integer rebalancePeriod;
 
     /**
      * Contains all the current files in the system and the current operations they are going under.
@@ -33,7 +34,7 @@ public class Controller {
      * Contains all the ports for the connected Dstore's and the files each Dstore has.
      * HashMap paring goes as follows [DSTORE_PORT, FILES].
      */
-    private static HashMap<String,ArrayList<String>> dstores;
+    private static HashMap<Socket,ArrayList<String>> dstores;
 
     /**
      * Main setup of the controller, setups up its main values then stats the programs main loop.
@@ -41,81 +42,155 @@ public class Controller {
      */
     public static void main(String[] args) {
 
+        // Defines base values which are required.
+        Integer controllerPort;
+
         // Sets up the main values inputted from the command line.
         try {
-            controllerPort = args[0];
-            replicationFactor = args[1];
-            timeoutMilliseconds = args[2];
-            rebalancePeriod = args[3];
+            controllerPort = Integer.getInteger(args[0]);
+            replicationFactor = Integer.getInteger(args[1]);
+            timeoutMilliseconds = Integer.getInteger(args[2]);
+            rebalancePeriod = Integer.getInteger(args[3]);
             indexes = new HashMap<String, String>();
-            dstores = new HashMap<String, ArrayList<String>>();
+            dstores = new HashMap<Socket, ArrayList<String>>();
         } catch (Exception exception) {
-            System.err.println("Not all arguments inputted: " + exception);
+            System.err.println("Error: (" + exception + "), arguments are either of wrong type or not inputted at all.");
             return;
         }
 
-        // Loop waiting for a client to send a command or Dstore to join.
-    }
+        // Trys binding the server socket to the port before starting the controllers main loop.
+        try {
+            controllerSocket = new ServerSocket(controllerPort);
+            while(true) { socketLoop(); }
+        }
 
-    /**
-     * Function which is used to parse the messages sent by a Client or Dstore.
-     * @param message The message which is being sent by the Client or Dstore.
-     * @param port The port that the Client or Dstore is connected on.
-     */
-    private static void messageParser(String message, String port) {
-        // Splits the inputted message into an array.
-        String messageArgs[] = message.split(" ");
+        // Returns an error if a problem happens trying to bind the port before the loop.
+        catch (IOException exception){
+            System.err.println("Error: (" + exception + "), unable to bind the port.");
+        }
 
-        // Uses switch to check which message the port sent and run the required function.
-        switch(messageArgs[0]) {
-            case Protocol.STORE_TOKEN -> {clientStore(messageArgs[1], messageArgs[2], port); break;}  // When a client wants a files to be store in the system.
-            case Protocol.LOAD_TOKEN -> {clientLoad(messageArgs[1], port); break;}                    // When a client wants to get a file from the system.
-            case Protocol.RELOAD_TOKEN -> {clientReload(messageArgs[1], port); break;}                // Whem a client wants a file from the system but the given Dstore doesn't work.
-            case Protocol.REMOVE_TOKEN -> {clientRemove(messageArgs[1], port); break;}                // When a client wants a file to be removed from the system.
-            case Protocol.LIST_TOKEN -> {clientList(port); break;}                                    // When a client wants a list of all files in the system.
-            case Protocol.JOIN_TOKEN -> {dstoreJoin(port); break;}                                    // When a Dstore joins the controller.
-            default -> {System.err.println("Malformed message [" + messageArgs + "] recieved from [Port:" + port + "]."); break;} // Malformed message is recieved.
+        // Clean up code which runs after the final try catch to close the port.
+        finally{
+            if (!controllerSocket.isClosed()) {
+                try {controllerSocket.close();}
+                catch(IOException exception) {System.err.println("Error: (" + exception + "), couldn't close port.");}
+            }
         }
     }
 
     /**
-     * Function which handles storage of new files into the distributed system.
-     * @param filename The name of the file the client wants to store.
-     * @param filesize The size of the file the client wants to store.
-     * @param port The port that the client is on.
+     * Main loop for the controller, trys to connect new sockets to the system then starts there own thread.
      */
-    private static void clientStore(String filename, String filesize, String port){}
+    private static void socketLoop(){
+
+        // Trys accepting the new socket before running its own thread.
+        try {
+            Socket newConnection = controllerSocket.accept();
+            new Thread(new ControllerThread(newConnection)).start();
+        }
+
+        // Catches any errors that occour with the IO during the connection.
+        catch (IOException exception){
+            System.err.println("Error: (" + exception + "), happend on the current thread with its IO.");
+        }
+    }
 
     /**
-     * Function which handles the loading of files from the distributed system.
-     * @param filename The name of the file the client wants to load.
-     * @param port The port that the client is on.
+     * Thread for the controller, handles a socket until connection is lost.
      */
-    private static void clientLoad(String filename, String port){}
+    static class ControllerThread implements Runnable {
 
-    /**
-     * Function which handles loading the same file from the distributed system but with a different Dstore (as last failed).
-     * @param filename The name of the file the client wants to load from a new Dstore.
-     * @param port The port that the client is on.
-     */
-    private static void clientReload(String filename, String port){}
+        /**
+         * Stores the socket which is being managed by this current thread.
+         */
+        private Socket connectedSocket;
 
-    /**
-     * Function which handles the removal of a file from the distributed system.
-     * @param filename The name of the file the client wants to remove.
-     * @param port The port that the client is on.
-     */
-    private static void clientRemove(String filename, String port){}
+        /**
+         * A value which lets the rest of the thread know if its a Dstore (by default set to false).
+         */
+        private Boolean isDstore = false;
 
-    /**
-     * Function which handles the listing of files in the distributed system.
-     * @param port The port that the client is on.
-     */
-    private static void clientList(String port){}
+        /**
+         * Used when initilising the thread, sets the socket before the threads main loop starts in run.
+         * @param inputtedSocket The socket which the thread is connected to.
+         */
+        ControllerThread(Socket inputtedSocket) {
+            connectedSocket = inputtedSocket;
+        }
 
-    /**
-     * Function which handles the joining of a new Dstore to the distributed system.
-     * @param port The port that the Dstore is on.
-     */
-    private static void dstoreJoin(String port){}
+        /**
+         * Main loop which is ran until the connection to the port is lost or the controller crashes.
+         */
+        public void run(){
+            // Trys to create a reader for the input stream and then parse the messages its recieves from the socket.
+            try {
+                BufferedReader reader = new BufferedReader(new InputStreamReader(connectedSocket.getInputStream()));
+                String currentMessage;
+                while((currentMessage = reader.readLine()) != null){
+                    System.out.println(currentMessage+" received");
+                    //ADD CODE FOR CALLING PARSER HERE
+                    //messageParser(currentMessage);
+                }
+                connectedSocket.close();
+            }
+            // If the program encounters an excpetion an error is flagged.
+            catch(Exception e) { System.err.println("Error: " + e); }
+        }
+
+        /**
+         * Function which is used to parse the messages sent by a Client or Dstore.
+         * @param message The message which is being sent by the Client or Dstore.
+         */
+        private void messageParser(String message) {
+            // Splits the inputted message into an array.
+            String messageArgs[] = message.split(" ");
+
+            // Uses switch to check which message the port sent and run the required function.
+            switch(messageArgs[0]) {
+                case Protocol.STORE_TOKEN -> clientStore(messageArgs[1], messageArgs[2]);  // When a client wants a files to be store in the system.
+                case Protocol.LOAD_TOKEN -> clientLoad(messageArgs[1]);                    // When a client wants to get a file from the system.
+                case Protocol.RELOAD_TOKEN -> clientReload(messageArgs[1]);                // Whem a client wants a file from the system but the given Dstore doesn't work.
+                case Protocol.REMOVE_TOKEN -> clientRemove(messageArgs[1]);                // When a client wants a file to be removed from the system.
+                case Protocol.LIST_TOKEN -> clientList();                                  // When a client wants a list of all files in the system.
+                case Protocol.JOIN_TOKEN -> dstoreJoin();                                  // When a Dstore joins the controller.
+                //ADD ACK HERE
+                default -> System.err.println("Error: malformed message [" + messageArgs + "] recieved from [Port:" + connectedSocket.getPort() + "]."); // Malformed message is recieved.
+            }
+        }
+
+        /**
+         * Function which handles storage of new files into the distributed system.
+         * @param filename The name of the file the client wants to store.
+         * @param filesize The size of the file the client wants to store.
+         */
+        private void clientStore(String filename, String filesize){}
+
+        /**
+         * Function which handles the loading of files from the distributed system.
+         * @param filename The name of the file the client wants to load.
+         */
+        private void clientLoad(String filename){}
+
+        /**
+         * Function which handles loading the same file from the distributed system but with a different Dstore (as last failed).
+         * @param filename The name of the file the client wants to load from a new Dstore.
+         */
+        private void clientReload(String filename){}
+
+        /**
+         * Function which handles the removal of a file from the distributed system.
+         * @param filename The name of the file the client wants to remove.
+         */
+        private void clientRemove(String filename){}
+
+        /**
+         * Function which handles the listing of files in the distributed system.
+         */
+        private void clientList(){}
+
+        /**
+         * Function which handles the joining of a new Dstore to the distributed system.
+         */
+        private void dstoreJoin(){}
+    }
 }
