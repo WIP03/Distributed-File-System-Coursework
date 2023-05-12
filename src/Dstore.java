@@ -1,21 +1,26 @@
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.net.ServerSocket;
+import java.net.Socket;
 
 public class Dstore {
 
     /**
-     * Port for the Dstore to listen to.
+     * The server socket which the dstore is using to communicate with different clients and the controller.
      */
-    private static String dstorePort;
+    private static ServerSocket dstoreSocket;
 
     /**
-     * The current port the controller is on to talk to it.
+     * The socket which the dstore uses to send information to the controller.
      */
-    private static String controllerPort;
+    private static Socket controllerSocket;
 
     /**
      * The time between process and the response its waiting for.
      */
-    private static String timeoutMilliseconds;
+    private static Integer timeoutMilliseconds;
 
     /**
      * Where data should be stored locally.
@@ -28,11 +33,15 @@ public class Dstore {
      */
     public static void main(String[] args) {
 
+        // Defines base values which are required.
+        Integer dstorePort;
+        Integer controllerPort;
+
         // Sets up the main values inputted from the command line.
         try {
-            dstorePort = args[0];
-            controllerPort = args[1];
-            timeoutMilliseconds = args[2];
+            dstorePort = Integer.getInteger(args[0]);
+            controllerPort = Integer.getInteger(args[1]);
+            timeoutMilliseconds = Integer.getInteger(args[2]);
             fileFolder = args[3];
         } catch (Exception exception) {
             System.err.println("Not all arguments inputted: " + exception);
@@ -45,7 +54,25 @@ public class Dstore {
         else {clearFileFolder(folder);}
 
         // JOIN THE CONTROLLER
-        // LOOP AROUND WAITING FOR MESSAGES ON ITS PORT, IF ONE IS RECIEVED AND NOT FROM A PORT BEING USED (APART FROM CONTROLLER) THEN PARSE ITS MESSAGE
+
+        // Trys binding the server socket to the port before starting the dstoress main loop.
+        try {
+            dstoreSocket = new ServerSocket(dstorePort);
+            while(true) { socketLoop(); }
+        }
+
+        // Returns an error if a problem happens trying to bind the port before the loop.
+        catch (IOException exception){
+            System.err.println("Error: (" + exception + "), unable to bind the port.");
+        }
+
+        // Clean up code which runs after the final try catch to close the port.
+        finally{
+            if (!dstoreSocket.isClosed()) {
+                try {dstoreSocket.close();}
+                catch(IOException exception) {System.err.println("Error: (" + exception + "), couldn't close port.");}
+            }
+        }
     }
 
     /**
@@ -66,66 +93,121 @@ public class Dstore {
     }
 
     /**
-     * Function which is used to parse the messages sent by a Client or the Controller.
-     * @param message The message which is being sent by the Client or Controller.
-     * @param port The port that the Client or Controller is connected on.
+     * Main loop for the dstore, trys to connect new sockets to the system then starts there own thread.
      */
-    private static void messageParser(String message, String port) {
-        // Splits the inputted message into an array.
-        String messageArgs[] = message.split(" ");
+    private static void socketLoop(){
 
-        // Uses switch to check which message the port sent and run the required function.
-        switch(messageArgs[0]) {
-            case Protocol.STORE_TOKEN -> {clientStore(messageArgs[1], messageArgs[2], port); break;}                        // When the client wants to store a file at the particular Dstore.
-            case Protocol.LOAD_DATA_TOKEN -> {clientLoadData(messageArgs[1], port); break;}                                 // When the client wants particular data from the Dstore.
-            case Protocol.REMOVE_TOKEN -> {clientRemove(messageArgs[1], port); break;}                                      // When the controller wants the Dstore to remove a particular file.
-            case Protocol.LIST_TOKEN -> {controllerList(port); break;}                                                      // When the controller is trying to get all the files the Dstore has before a rebalance.
-            case Protocol.REBALANCE_TOKEN -> {controllerRebalance(message, port); break;}                                   // When the Dstore is to be changed by sending file to other Dstores and removing its own files.
-            case Protocol.REBALANCE_STORE_TOKEN -> {dstoreRebalanceStore(messageArgs[1], messageArgs[2], port); break;}     // When another Dstore is sending a file to the current Dstore.
-            default -> {System.err.println("Malformed message [" + messageArgs + "] recieved from [Port:" + port + "]."); break;} // Malformed message is recieved.
+        // Trys accepting the new socket before running its own thread.
+        try {
+            Socket newConnection = dstoreSocket.accept();
+            new Thread(new DstoreThread(newConnection)).start();
+        }
+
+        // Catches any errors that occour with the IO during the connection.
+        catch (IOException exception){
+            System.err.println("Error: (" + exception + "), happend on the current thread with its IO.");
         }
     }
 
     /**
-     * Function which handles storage of new files into the particular Dstore.
-     * @param filename The name of the file the client wants to store.
-     * @param filesize The size of the file the client wants to store.
-     * @param port The port that the client is on.
+     * Thread for the dstore, handles a socket until connection is lost.
      */
-    private static void clientStore(String filename, String filesize, String port){}
+    static class DstoreThread implements Runnable {
 
-    /**
-     * Function which handles loading of a file from the particular Dstore.
-     * @param filename The name of the file the client wants to load.
-     * @param port The port that the client is on.
-     */
-    private static void clientLoadData(String filename, String port){}
+        /**
+         * Stores the socket which is being managed by this current thread.
+         */
+        private Socket connectedSocket;
 
-    /**
-     * Function which handles removing of a file from the particular Dstore.
-     * @param filename The name of the file the client wants to remove.
-     * @param port The port that the client is on.
-     */
-    private static void clientRemove(String filename, String port){}
+        /**
+         * Used when initilising the thread, sets the socket before the threads main loop starts in run.
+         * @param inputtedSocket The socket which the thread is connected to.
+         */
+        DstoreThread(Socket inputtedSocket) {
+            connectedSocket = inputtedSocket;
+        }
 
-    /**
-     * Function which handles giving the controller all the files currently stored in are particular Dstore.
-     * @param port The port that the controller is connected on.
-     */
-    private static void controllerList(String port){}
+        /**
+         * Main loop which is ran until the connection to the port is lost or the dstore fails.
+         */
+        public void run(){
+            // Trys to create a reader for the input stream and then parse the messages its recieves from the socket.
+            try {
+                BufferedReader reader = new BufferedReader(new InputStreamReader(connectedSocket.getInputStream()));
+                String currentMessage;
+                while((currentMessage = reader.readLine()) != null){
+                    System.out.println(currentMessage+" received");
+                    //ADD CODE FOR CALLING PARSER HERE
+                    //messageParser(currentMessage);
+                }
+                connectedSocket.close();
+            }
+            // If the program encounters an excpetion an error is flagged.
+            catch(Exception e) { System.err.println("Error: " + e); }
+        }
 
-    /**
-     * Function which is used when the controller calls for a rebalance of the files stored in the distributed system.
-     * @param message The unaltered orginal message so it can be read properly for future function.
-     * @param port The port that the controller is connected on.
-     */
-    private static void controllerRebalance(String message, String port){}
+        /**
+         * Function which is used to parse the messages sent by a Client or the Controller.
+         * @param message The message which is being sent by the Client or Controller.
+         * @param port The port that the Client or Controller is connected on.
+         */
+        private static void messageParser(String message, String port) {
+            // Splits the inputted message into an array.
+            String messageArgs[] = message.split(" ");
 
-    /**
-     * Function which is used when another Dstore want to send this specific Dstore a file.
-     * @param filename The name of the file the Dstore wants to send.
-     * @param filesize The size of the file the Dstore wants to send
-     * @param port The port that the other Dstore is connected on.
-     */
-    private static void dstoreRebalanceStore(String filename, String filesize, String port){}
+            // Uses switch to check which message the port sent and run the required function.
+            switch(messageArgs[0]) {
+                case Protocol.STORE_TOKEN -> {clientStore(messageArgs[1], messageArgs[2], port); break;}                        // When the client wants to store a file at the particular Dstore.
+                case Protocol.LOAD_DATA_TOKEN -> {clientLoadData(messageArgs[1], port); break;}                                 // When the client wants particular data from the Dstore.
+                case Protocol.REMOVE_TOKEN -> {clientRemove(messageArgs[1], port); break;}                                      // When the controller wants the Dstore to remove a particular file.
+                case Protocol.LIST_TOKEN -> {controllerList(port); break;}                                                      // When the controller is trying to get all the files the Dstore has before a rebalance.
+                case Protocol.REBALANCE_TOKEN -> {controllerRebalance(message, port); break;}                                   // When the Dstore is to be changed by sending file to other Dstores and removing its own files.
+                case Protocol.REBALANCE_STORE_TOKEN -> {dstoreRebalanceStore(messageArgs[1], messageArgs[2], port); break;}     // When another Dstore is sending a file to the current Dstore.
+                default -> {System.err.println("Malformed message [" + messageArgs + "] recieved from [Port:" + port + "]."); break;} // Malformed message is recieved.
+            }
+        }
+
+        /**
+         * Function which handles storage of new files into the particular Dstore.
+         * @param filename The name of the file the client wants to store.
+         * @param filesize The size of the file the client wants to store.
+         * @param port The port that the client is on.
+         */
+        private static void clientStore(String filename, String filesize, String port){}
+
+        /**
+         * Function which handles loading of a file from the particular Dstore.
+         * @param filename The name of the file the client wants to load.
+         * @param port The port that the client is on.
+         */
+        private static void clientLoadData(String filename, String port){}
+
+        /**
+         * Function which handles removing of a file from the particular Dstore.
+         * @param filename The name of the file the client wants to remove.
+         * @param port The port that the client is on.
+         */
+        private static void clientRemove(String filename, String port){}
+
+        /**
+         * Function which handles giving the controller all the files currently stored in are particular Dstore.
+         * @param port The port that the controller is connected on.
+         */
+        private static void controllerList(String port){}
+
+        /**
+         * Function which is used when the controller calls for a rebalance of the files stored in the distributed system.
+         * @param message The unaltered orginal message so it can be read properly for future function.
+         * @param port The port that the controller is connected on.
+         */
+        private static void controllerRebalance(String message, String port){}
+
+        /**
+         * Function which is used when another Dstore want to send this specific Dstore a file.
+         * @param filename The name of the file the Dstore wants to send.
+         * @param filesize The size of the file the Dstore wants to send
+         * @param port The port that the other Dstore is connected on.
+         */
+        private static void dstoreRebalanceStore(String filename, String filesize, String port){}
+    }
 }

@@ -5,7 +5,7 @@ import java.util.HashMap;
 public class Controller {
 
     /**
-     * The socket which the controller is using to communicate with different clients and Dstores.
+     * The server socket which the controller is using to communicate with different clients and Dstores.
      */
     private static ServerSocket controllerSocket;
 
