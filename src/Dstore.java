@@ -2,6 +2,8 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.PrintWriter;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 
@@ -53,7 +55,17 @@ public class Dstore {
         if (!folder.exists()) {folder.mkdir();}
         else {clearFileFolder(folder);}
 
-        // JOIN THE CONTROLLER
+        // Creates the socket for the controller then connects the Dstore to the controller via said socket.
+        try {
+            controllerSocket = new Socket(InetAddress.getLoopbackAddress(), controllerPort);
+            sendMessage(Protocol.JOIN_TOKEN, String.valueOf(dstorePort), controllerSocket);
+        }
+
+        // Catches any issue that could occour when connecting to the controller. (MAYBE PUT ME INSIDE OF LOOP TRY CATCH TO CLOSE SOCKET AT END).
+        catch (IOException exception) {
+            System.err.println("Error: (" + exception + "), unable to join controller.");
+            return;
+        }
 
         // Trys binding the server socket to the port before starting the dstoress main loop.
         try {
@@ -93,9 +105,20 @@ public class Dstore {
     }
 
     /**
+     * Function which is used to send a particular message to a given socket.
+     * @param protocol The type of message which is being sent.
+     * @param parameters The values which are contained in the message.
+     * @param socket The socket we are trying to send said message on.
+     * @throws IOException Occours when an error occours with the {@link PrintWriter}.
+     */
+    private static void sendMessage(String protocol, String parameters, Socket socket) throws IOException {
+        //ADD SENDING CODE.
+    }
+
+    /**
      * Main loop for the dstore, trys to connect new sockets to the system then starts there own thread.
      */
-    private static void socketLoop(){
+    private static void socketLoop() {
 
         // Trys accepting the new socket before running its own thread.
         try {
