@@ -34,7 +34,6 @@ public class Dstore {
      * @param args Values which are used in setting up the Dstore.
      */
     public static void main(String[] args) {
-
         // Defines base values which are required.
         Integer dstorePort;
         Integer controllerPort;
@@ -111,15 +110,22 @@ public class Dstore {
      * @param socket The socket we are trying to send said message on.
      * @throws IOException Occours when an error occours with the {@link PrintWriter}.
      */
-    private static void sendMessage(String protocol, String parameters, Socket socket) throws IOException {
-        //ADD SENDING CODE.
+    private static void sendMessage(String protocol, Object parameters, Socket socket) throws IOException {
+        // Creates a new print writer for the given socket which auto flushes its inputs.
+        PrintWriter socketOut = new PrintWriter(socket.getOutputStream(), true);
+
+        // Creates the standard output, if its parameter is not null then its modified.
+        String output = protocol;
+        if (parameters != null) {output = protocol + " " + parameters;}
+
+        // Sends the message then terminates the line before automatically flushing it so it gets to its destination.
+        socketOut.println(output);
     }
 
     /**
      * Main loop for the dstore, trys to connect new sockets to the system then starts there own thread.
      */
     private static void socketLoop() {
-
         // Trys accepting the new socket before running its own thread.
         try {
             Socket newConnection = dstoreSocket.accept();

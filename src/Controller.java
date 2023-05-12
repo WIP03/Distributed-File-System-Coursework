@@ -1,4 +1,4 @@
-import java.io.BufferedReader;import java.io.IOException;import java.io.InputStreamReader;import java.net.ServerSocket;import java.net.Socket;
+import java.io.BufferedReader;import java.io.IOException;import java.io.InputStreamReader;import java.io.PrintWriter;import java.net.ServerSocket;import java.net.Socket;
 import java.util.ArrayList;
 import java.util.HashMap;
 
@@ -41,7 +41,6 @@ public class Controller {
      * @param args Values which are used in setting up the controller.
      */
     public static void main(String[] args) {
-
         // Defines base values which are required.
         Integer controllerPort;
 
@@ -79,10 +78,28 @@ public class Controller {
     }
 
     /**
+     * Function which is used to send a particular message to a given socket.
+     * @param protocol The type of message which is being sent.
+     * @param parameters The values which are contained in the message.
+     * @param socket The socket we are trying to send said message on.
+     * @throws IOException Occours when an error occours with the {@link PrintWriter}.
+     */
+    private static void sendMessage(String protocol, Object parameters, Socket socket) throws IOException {
+        // Creates a new print writer for the given socket which auto flushes its inputs.
+        PrintWriter socketOut = new PrintWriter(socket.getOutputStream(), true);
+
+        // Creates the standard output, if its parameter is not null then its modified.
+        String output = protocol;
+        if (parameters != null) {output = protocol + " " + parameters;}
+
+        // Sends the message then terminates the line before automatically flushing it so it gets to its destination.
+        socketOut.println(output);
+    }
+
+    /**
      * Main loop for the controller, trys to connect new sockets to the system then starts there own thread.
      */
     private static void socketLoop(){
-
         // Trys accepting the new socket before running its own thread.
         try {
             Socket newConnection = controllerSocket.accept();
