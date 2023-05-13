@@ -34,7 +34,7 @@ public class Controller {
      * Contains all the ports for the connected Dstore's and the files each Dstore has.
      * HashMap paring goes as follows [DSTORE_PORT, FILES].
      */
-    private static HashMap<Socket,ArrayList<String>> dstores;
+    private static HashMap<Integer,ArrayList<String>> dstores;
 
     /**
      * Main setup of the controller, setups up its main values then stats the programs main loop.
@@ -51,7 +51,7 @@ public class Controller {
             timeoutMilliseconds = Integer.getInteger(args[2]);
             rebalancePeriod = Integer.getInteger(args[3]);
             indexes = new HashMap<String, String>();
-            dstores = new HashMap<Socket, ArrayList<String>>();
+            dstores = new HashMap<Integer, ArrayList<String>>();
         } catch (Exception exception) {
             System.err.println("Error: (" + exception + "), arguments are either of wrong type or not inputted at all.");
             return;
@@ -76,6 +76,11 @@ public class Controller {
             }
         }
     }
+
+    /**
+     * Used to rebalance the storage system. (IMPROVE DESCRIPTION LATER)
+     */
+    private static void storageRebalanceOperation() {}
 
     /**
      * Function which is used to send a particular message to a given socket.
@@ -169,7 +174,7 @@ public class Controller {
                 case Protocol.RELOAD_TOKEN -> clientReload(messageArgs[1]);                // Whem a client wants a file from the system but the given Dstore doesn't work.
                 case Protocol.REMOVE_TOKEN -> clientRemove(messageArgs[1]);                // When a client wants a file to be removed from the system.
                 case Protocol.LIST_TOKEN -> clientList();                                  // When a client wants a list of all files in the system.
-                case Protocol.JOIN_TOKEN -> dstoreJoin();                                  // When a Dstore joins the controller.
+                case Protocol.JOIN_TOKEN -> dstoreJoin(messageArgs[1]);                                  // When a Dstore joins the controller.
                 //ADD ACK HERE
                 default -> System.err.println("Error: malformed message [" + messageArgs + "] recieved from [Port:" + connectedSocket.getPort() + "]."); // Malformed message is recieved.
             }
@@ -208,6 +213,15 @@ public class Controller {
         /**
          * Function which handles the joining of a new Dstore to the distributed system.
          */
-        private void dstoreJoin(){}
+        private void dstoreJoin(String port) {
+            // Lets the Thread know that it is a Dstore for later use.
+            isDstore = true;
+
+            // Adds it to the HashMap of Dstores ready to be updated when files are added.
+            dstores.put(Integer.getInteger(port), new ArrayList<String>());
+
+            // Rebalances the storage system as a new Dstore has joined.
+            storageRebalanceOperation();
+        }
     }
 }
