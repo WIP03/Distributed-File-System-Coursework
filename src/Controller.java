@@ -185,7 +185,16 @@ public class Controller {
          * @param filename The name of the file the client wants to store.
          * @param filesize The size of the file the client wants to store.
          */
-        private void clientStore(String filename, String filesize){}
+        private void clientStore(String filename, String filesize) {
+
+            // UPDATES INDEX (SEND ERROR IF INDEX ALREADY EXISTS)
+            indexes.put(filename, Index.STORE_PROGRESS_TOKEN);
+
+            // SELECTS R DSTORES (SEND ERROR IF LESS THEN R DSTORES)
+
+            // SEND DSTORES TO CLIENT, (RECORD FILE NAME, CLIENT PORT AND DSTORES PORTS IN A HASH MAP, REMOVE PORT AFTER GETTING AN ACK TOKEN)
+            // CHECK FOR ALL RECIEVED UPDATE INDEX FOR FILE AND SEND MESSAGE TO INITIAL CLIENT IF GOTTEN WITHIN TIMEOUT (IF NOT THEN JUST EXIT THIS).
+        }
 
         /**
          * Function which handles the loading of files from the distributed system.
