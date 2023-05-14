@@ -219,6 +219,10 @@ public class Dstore {
                     fileWriter.write(buf, 0, bytesRead);
                 }
 
+                //Closes the internal connections before values removed by garbage collection.
+                reader.close();
+                fileWriter.close();
+
                 // Try's sending acknowledgement message to controller that we stored a file, if not possible it ends the operation.
                 try{ sendMessage(Protocol.STORE_ACK_TOKEN, filename, controllerSocket); }
                 catch (IOException exception) { System.err.println("Error: unable to tell controller that we stored the file"); }
@@ -240,7 +244,42 @@ public class Dstore {
          * Function which handles loading of a file from the particular Dstore.
          * @param filename The name of the file the client wants to load.
          */
-        private void clientLoadData(String filename){}
+        private void clientLoadData(String filename) {
+            // Try's to setup a timeout for sending information to the client.
+            try { connectedSocket.setSoTimeout(timeoutMilliseconds); }
+            catch (SocketException exception) { System.err.println("Error: unable to setup timeout for client"); return; }
+
+            // Try's to load data from the given file and send it to the client.
+            try {
+                // Get the file from the input and gets the connection to send it on.
+                InputStream fileReader = new FileInputStream(fileFolder + File.separator + filename);
+                OutputStream writer = connectedSocket.getOutputStream();
+
+                // Transfers the file to the client via the output stream.
+                byte[] buf = new byte[2048]; // Does this need to be file size??
+                int bytesRead;
+                while((bytesRead = fileReader.read(buf)) != -1) {
+                    writer.write(buf, 0, bytesRead);
+                }
+
+                //Closes the internal connections before values removed by garbage collection.
+                fileReader.close();
+                writer.close();
+            }
+
+            // Try's to remove the connection of the socket as the file doesn't exitst/cant be loaded from the Dstore.
+            catch (IOException exception) {
+                System.err.println("Error: unable to load file from Dstore with exception '" + exception + "'.");
+                try { connectedSocket.close(); }
+                catch (IOException exception1) { System.err.println("Error: cant close the threads socket."); }
+            }
+
+            // Try's to reset timeout for sending information to the clients stream as its no longer needed.
+            finally{
+                try { connectedSocket.setSoTimeout(0); }
+                catch (SocketException exception) { System.err.println("Error: unable to remove timeout for sending data to client."); }
+            }
+        }
 
         /**
          * Function which handles removing of a file from the particular Dstore.
