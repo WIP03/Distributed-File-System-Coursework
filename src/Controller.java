@@ -2,7 +2,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
-import java.net.ServerSocket;
+import java.net.InetAddress;import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.Collections;import java.util.HashMap;
@@ -261,7 +261,7 @@ public class Controller {
                 if (fileLatches.get(filename).await(timeoutMilliseconds, TimeUnit.MILLISECONDS)) {
                     indexes.put(filename, Index.STORE_COMPLETE_TOKEN);
                     sendMessage(Protocol.STORE_COMPLETE_TOKEN, null, connectedSocket);
-                    //MAYBE MAKE IT ADD THE FILE TO ALL THE DSTORE???
+                    //MAYBE MAKE IT ADD THE FILE TO ALL THE DSTORES FILE ARRAYLISTS???
                 }
 
                 // As file is though to have not properly been saved it is removed from the system.
@@ -347,7 +347,65 @@ public class Controller {
          * Function which handles the removal of a file from the distributed system.
          * @param filename The name of the file the client wants to remove.
          */
-        private void clientRemove(String filename){}
+        private void clientRemove(String filename) {
+            // Checks if the file that wants to be removed is not in the system, if so it sends an error and stops processing.
+            if (!indexes.containsKey(filename)) {
+                try { sendMessage(Protocol.ERROR_FILE_DOES_NOT_EXISTS_TOKEN, null, connectedSocket); }
+                catch (IOException exception) { System.err.println("Error: unable to send file doesn't exists error to port: " + connectedSocket.getPort()); }
+                finally{ return; }
+            }
+
+            // Checks if there isn't enough Dstores for the operation to occour, if so it sends an error and stops processing.
+            if (indexes.size() < replicationFactor) {
+                try { sendMessage(Protocol.ERROR_NOT_ENOUGH_DSTORES_TOKEN, null, connectedSocket); }
+                catch (IOException exception) { System.err.println("Error: unable to send not enough dstores error to port: " + connectedSocket.getPort()); }
+                finally{ return; }
+            }
+
+            // Adds the file to the HashMap of indexes with the state of "store in progress" (plus to a filesize HashMap).
+            indexes.put(filename, Index.REMOVE_PROGRESS_TOKEN);
+
+            // Creates a latch for the current file so we can wait for its completion.
+            CountDownLatch currentLatch = new CountDownLatch(replicationFactor);
+            fileLatches.put(filename, currentLatch);
+
+            // Goes through all Dstores that contain the file and sends them a remove command for that file.
+            ArrayList<Integer> possibleDstores = new ArrayList<>();
+            dstores.forEach((store,files) -> {
+                if (files.contains(filename)) {
+                    // Creates the socket for the Dstore which has the file then sends a message to it letting it know that it should remove said file
+                    try {
+                        Socket dstoreSocket = new Socket(InetAddress.getLoopbackAddress(), store);
+                        sendMessage(Protocol.REMOVE_TOKEN, filename, dstoreSocket);
+                    }
+
+                    // Catches any issue that could occour when connecting to the Dstore.
+                    catch (IOException exception) {
+                        System.err.println("Error: (" + exception + "), unable to join controller.");
+                        return;
+                    }
+                }
+            });
+
+            // Trys checking if all Dstores have recieved the message
+            try {
+                // If the files are removed from all Dstores in time then remove complete is sent and the index is updated to reflect this.
+                if (fileLatches.get(filename).await(timeoutMilliseconds, TimeUnit.MILLISECONDS)) {
+                    indexes.put(filename, Index.REMOVE_COMPLETE_TOKEN);
+                    fileSize.remove(filename);
+                    sendMessage(Protocol.REMOVE_COMPLETE_TOKEN, null, connectedSocket);
+                    //MAYBE MAKE IT REMOVE THE FILE TO ALL THE DSTORES FILE ARRAYLISTS???
+                }
+            }
+
+            // Sends error if an error occurs during either the latching or sending the message to the client.
+            catch (Exception exception) {
+                System.err.println("Error: Unable to makesure files are removed (exception: " + exception + ").");
+            }
+
+            // Removes the latch as its no longer needed.
+            finally { fileLatches.remove(filename); }
+        }
 
         /**
          * Function which handles the listing of files in the distributed system.
@@ -366,7 +424,7 @@ public class Controller {
 
             // Creates the arguement which includes all the files previously extracted.
             String argument = "";
-            for (String file : allFiles) { argument = argument + file + " "; }
+            for (String file : allFiles) { argument += file + " "; }
 
             // Trys to send the client the list of all files in the system.
             try { sendMessage(Protocol.LIST_TOKEN, argument, connectedSocket); }

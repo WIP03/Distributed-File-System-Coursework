@@ -284,7 +284,11 @@ public class Dstore {
          * Function which handles removing of a file from the particular Dstore.
          * @param filename The name of the file the client wants to remove.
          */
-        private void clientRemove(String filename){}
+        private void clientRemove(String filename) {
+            //TRY TO REMOVE FILE FROM THE DSTORE
+            //IF SUCCESSFUL LET THE CONTROLLER KNOW
+            //ELSE SEND ERROR FOR NOT HAVING FILE TO CONTROLLER
+        }
 
         /**
          * Function which is used when the controller calls for a rebalance of the files stored in the distributed system.
