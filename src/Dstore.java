@@ -185,7 +185,6 @@ public class Dstore {
                 case Protocol.STORE_TOKEN -> clientStore(messageArgs[1], messageArgs[2]);                    // When the client wants to store a file at the particular Dstore.
                 case Protocol.LOAD_DATA_TOKEN -> clientLoadData(messageArgs[1]);                             // When the client wants particular data from the Dstore.
                 case Protocol.REMOVE_TOKEN -> clientRemove(messageArgs[1]);                                  // When the controller wants the Dstore to remove a particular file.
-                case Protocol.LIST_TOKEN -> controllerList();                                                // When the controller is trying to get all the files the Dstore has before a rebalance.
                 case Protocol.REBALANCE_TOKEN -> controllerRebalance(message);                               // When the Dstore is to be changed by sending file to other Dstores and removing its own files.
                 case Protocol.REBALANCE_STORE_TOKEN -> dstoreRebalanceStore(messageArgs[1], messageArgs[2]); // When another Dstore is sending a file to the current Dstore.
                 default -> System.err.println("Malformed message [" + messageArgs + "] recieved from [Port:" + port + "]."); // Malformed message is recieved.
@@ -286,11 +285,6 @@ public class Dstore {
          * @param filename The name of the file the client wants to remove.
          */
         private void clientRemove(String filename){}
-
-        /**
-         * Function which handles giving the controller all the files currently stored in are particular Dstore.
-         */
-        private void controllerList(){}
 
         /**
          * Function which is used when the controller calls for a rebalance of the files stored in the distributed system.

@@ -352,7 +352,26 @@ public class Controller {
         /**
          * Function which handles the listing of files in the distributed system.
          */
-        private void clientList(){}
+        private void clientList() {
+            // Checks if there isn't enough Dstores for the operation to occour, if so it sends an error and stops processing.
+            if (indexes.size() < replicationFactor) {
+                try { sendMessage(Protocol.ERROR_NOT_ENOUGH_DSTORES_TOKEN, null, connectedSocket); }
+                catch (IOException exception) { System.err.println("Error: unable to send not enough dstores error to port: " + connectedSocket.getPort()); }
+                finally{ return; }
+            }
+
+            // Extracts all the files that exits from the indexes Hashmap.
+            ArrayList<String> allFiles = new ArrayList<>();
+            indexes.forEach((file,context) -> { allFiles.add(file);});
+
+            // Creates the arguement which includes all the files previously extracted.
+            String argument = "";
+            for (String file : allFiles) { argument = argument + file + " "; }
+
+            // Trys to send the client the list of all files in the system.
+            try { sendMessage(Protocol.LIST_TOKEN, argument, connectedSocket); }
+            catch (IOException exception) { System.err.println("Error: unable to send client list of avalible files in the system."); }
+        }
 
         /**
          * Function which handles the joining of a new Dstore to the distributed system.
