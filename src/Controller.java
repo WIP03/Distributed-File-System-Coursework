@@ -5,7 +5,7 @@ import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.Collections;import java.util.HashMap;
 import java.util.Set;import java.util.concurrent.CountDownLatch;import java.util.concurrent.TimeUnit;
 
 public class Controller {
@@ -153,6 +153,11 @@ public class Controller {
         private Boolean isDstore = false;
 
         /**
+         * Stores a list of ports which the client has already loaded from (resets on new normal load).
+         */
+        private ArrayList<Integer> loadedFromPorts = new ArrayList<>();
+
+        /**
          * Used when initilising the thread, sets the socket before the threads main loop starts in run.
          * @param inputtedSocket The socket which the thread is connected to.
          */
@@ -282,13 +287,61 @@ public class Controller {
          * Function which handles the loading of files from the distributed system.
          * @param filename The name of the file the client wants to load.
          */
-        private void clientLoad(String filename){}
+        private void clientLoad(String filename) {
+            // Resets the loaded from ports as its a new load.
+            loadedFromPorts = new ArrayList<>();
+
+            // Calls clientReload as the rest of the code is the same.
+            clientReload(filename);
+        }
 
         /**
-         * Function which handles loading the same file from the distributed system but with a different Dstore (as last failed).
+         * Function which handles loading the same file from the distributed system but with a different Dstore (as the last lot failed).
          * @param filename The name of the file the client wants to load from a new Dstore.
          */
-        private void clientReload(String filename){}
+        private void clientReload(String filename) {
+            // Checks if the file that wants to load exists in the system, if not it sends an error and stops processing.
+            if (!indexes.containsKey(filename)) {
+                try { sendMessage(Protocol.ERROR_FILE_DOES_NOT_EXISTS_TOKEN, null, connectedSocket); }
+                catch (IOException exception) { System.err.println("Error: unable to send file doesn't exists error to port: " + connectedSocket.getPort()); }
+                finally{ return; }
+            }
+
+            // Checks if there isn't enough Dstores for the operation to occour, if so it sends an error and stops processing.
+            if (indexes.size() < replicationFactor) {
+                try { sendMessage(Protocol.ERROR_NOT_ENOUGH_DSTORES_TOKEN, null, connectedSocket); }
+                catch (IOException exception) { System.err.println("Error: unable to send not enough dstores error to port: " + connectedSocket.getPort()); }
+                finally{ return; }
+            }
+
+            // Creates an ArrayList containing all current Dstores which could contain the file
+            ArrayList<Integer> possibleDstores = new ArrayList<>();
+            dstores.forEach((store,files) -> {
+                if (files.contains(filename) && !loadedFromPorts.contains(store)) {
+                    possibleDstores.add(store);
+                }
+            });
+
+            // Tries to send the client the correct response for loading the file, if not possible an error is given.
+            try {
+                // Checks if there arn't any Dstores left to load files from, if so an error is sent to the client.
+                if (possibleDstores.isEmpty()) {
+                    sendMessage(Protocol.ERROR_LOAD_TOKEN, null, connectedSocket);
+                    System.out.println("Error: Unable to load file (with name '" + filename + "') from any Dstore");
+                }
+
+                // Else it sends a random avalible Dstrore for the client to load the file from (and adds it to loaded from ports).
+                else {
+                    int argument = possibleDstores.get((int) Math.random() * possibleDstores.size());
+                    sendMessage(Protocol.LOAD_FROM_TOKEN, argument, connectedSocket);
+                    loadedFromPorts.add(connectedSocket.getPort());
+                }
+
+            }
+
+            // Occours when an exception happens in when sending a message to the client.
+            catch (IOException exception) { System.err.println("Error: unable to let the client know the current state of getting the file from the Dstore."); }
+        }
 
         /**
          * Function which handles the removal of a file from the distributed system.
