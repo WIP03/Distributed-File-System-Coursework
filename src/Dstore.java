@@ -1,11 +1,7 @@
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
+import java.io.*;
 import java.net.InetAddress;
 import java.net.ServerSocket;
-import java.net.Socket;
+import java.net.Socket;import java.net.SocketException;
 
 public class Dstore {
 
@@ -73,7 +69,7 @@ public class Dstore {
         }
 
         // Returns an error if a problem happens trying to bind the port before the loop.
-        catch (IOException exception){
+        catch (IOException exception) {
             System.err.println("Error: (" + exception + "), unable to bind the port.");
         }
 
@@ -180,7 +176,7 @@ public class Dstore {
          * @param message The message which is being sent by the Client or Controller.
          * @param port The port that the Client or Controller is connected on.
          */
-        private static void messageParser(String message, String port) {
+        private void messageParser(String message, String port) {
             // Splits the inputted message into an array.
             String messageArgs[] = message.split(" ");
 
@@ -201,36 +197,73 @@ public class Dstore {
          * @param filename The name of the file the client wants to store.
          * @param filesize The size of the file the client wants to store.
          */
-        private static void clientStore(String filename, String filesize){}
+        private void clientStore(String filename, String filesize) {
+            // Try's sending an acknowledgement message to the client, if not possible it ends the operation.
+            try{ sendMessage(Protocol.ACK_TOKEN, null, connectedSocket); }
+            catch (IOException exception) { System.err.println("Error: unable to tell client it got the message"); return; }
+
+            // Try's to setup a timeout for reading information from the clients stream.
+            try { connectedSocket.setSoTimeout(timeoutMilliseconds); }
+            catch (SocketException exception) { System.err.println("Error: unable to setup timeout for client"); return; }
+
+            // Used for getting the file from the client and storing it in the system before letting the controller know that it worked.
+            try {
+                // Gets the input and output for the file.
+                InputStream reader = connectedSocket.getInputStream();
+                OutputStream fileWriter = new BufferedOutputStream(new FileOutputStream(fileFolder + File.separator + filename));
+
+                // Transfers the file from the input stream to the file.
+                byte[] buf = new byte[Integer.getInteger(filesize)]; // Does this need to be file size??
+                int bytesRead;
+                while((bytesRead = reader.read(buf)) != -1) {
+                    fileWriter.write(buf, 0, bytesRead);
+                }
+
+                // Try's sending acknowledgement message to controller that we stored a file, if not possible it ends the operation.
+                try{ sendMessage(Protocol.STORE_ACK_TOKEN, filename, controllerSocket); }
+                catch (IOException exception) { System.err.println("Error: unable to tell controller that we stored the file"); }
+            }
+
+            //Lets the user know if the Dstore can't save the file.
+            catch (IOException exception) {
+                System.err.println("Error: unable to load and or save file (exception: " + exception + ").");
+            }
+
+            // Try's to reset timeout for reading information from the clients stream as its no longer needed.
+            finally{
+                try { connectedSocket.setSoTimeout(0); }
+                catch (SocketException exception) { System.err.println("Error: unable to remove timeout for client"); }
+            }
+        }
 
         /**
          * Function which handles loading of a file from the particular Dstore.
          * @param filename The name of the file the client wants to load.
          */
-        private static void clientLoadData(String filename){}
+        private void clientLoadData(String filename){}
 
         /**
          * Function which handles removing of a file from the particular Dstore.
          * @param filename The name of the file the client wants to remove.
          */
-        private static void clientRemove(String filename){}
+        private void clientRemove(String filename){}
 
         /**
          * Function which handles giving the controller all the files currently stored in are particular Dstore.
          */
-        private static void controllerList(){}
+        private void controllerList(){}
 
         /**
          * Function which is used when the controller calls for a rebalance of the files stored in the distributed system.
          * @param message The unaltered orginal message so it can be read properly for future function.
          */
-        private static void controllerRebalance(String message){}
+        private void controllerRebalance(String message){}
 
         /**
          * Function which is used when another Dstore want to send this specific Dstore a file.
          * @param filename The name of the file the Dstore wants to send.
          * @param filesize The size of the file the Dstore wants to send
          */
-        private static void dstoreRebalanceStore(String filename, String filesize){}
+        private void dstoreRebalanceStore(String filename, String filesize){}
     }
 }

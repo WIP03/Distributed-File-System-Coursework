@@ -1,6 +1,12 @@
-import java.io.BufferedReader;import java.io.IOException;import java.io.InputStreamReader;import java.io.PrintWriter;import java.net.ServerSocket;import java.net.Socket;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.PrintWriter;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Set;import java.util.concurrent.CountDownLatch;import java.util.concurrent.TimeUnit;
 
 public class Controller {
 
@@ -25,10 +31,22 @@ public class Controller {
     private static Integer rebalancePeriod;
 
     /**
+     * Contains all the current files in the system and the size of the given file.
+     * HashMap paring goes as follows [FILE, SIZE].
+     */
+    private static HashMap<String,String> fileSize;
+
+    /**
      * Contains all the current files in the system and the current operations they are going under.
      * HashMap paring goes as follows [FILE, CONTEXT].
      */
     private static HashMap<String,String> indexes;
+
+    /**
+     * Contains all the current files which are undergoing an operation and there CountDownLatch
+     * HashMap paring goes as follows [FILE, LATCH].
+     */
+    private static HashMap<String,CountDownLatch> fileLatches;
 
     /**
      * Contains all the ports for the connected Dstore's and the files each Dstore has.
@@ -50,8 +68,10 @@ public class Controller {
             replicationFactor = Integer.getInteger(args[1]);
             timeoutMilliseconds = Integer.getInteger(args[2]);
             rebalancePeriod = Integer.getInteger(args[3]);
-            indexes = new HashMap<String, String>();
-            dstores = new HashMap<Integer, ArrayList<String>>();
+            fileSize = new HashMap<>();
+            indexes = new HashMap<>();
+            fileLatches = new HashMap<>();
+            dstores = new HashMap<>();
         } catch (Exception exception) {
             System.err.println("Error: (" + exception + "), arguments are either of wrong type or not inputted at all.");
             return;
@@ -155,8 +175,12 @@ public class Controller {
                 }
                 connectedSocket.close();
             }
+
             // If the program encounters an excpetion an error is flagged.
             catch(Exception e) { System.err.println("Error: " + e); }
+
+            // If the thread is for a Dstore then it removes it from the list on disconnect to help with all operations (including rebalance).
+            finally { if (isDstore) {dstores.remove(connectedSocket.getPort());} }
         }
 
         /**
@@ -174,8 +198,9 @@ public class Controller {
                 case Protocol.RELOAD_TOKEN -> clientReload(messageArgs[1]);                // Whem a client wants a file from the system but the given Dstore doesn't work.
                 case Protocol.REMOVE_TOKEN -> clientRemove(messageArgs[1]);                // When a client wants a file to be removed from the system.
                 case Protocol.LIST_TOKEN -> clientList();                                  // When a client wants a list of all files in the system.
-                case Protocol.JOIN_TOKEN -> dstoreJoin(messageArgs[1]);                                  // When a Dstore joins the controller.
-                //ADD ACK HERE
+                case Protocol.JOIN_TOKEN -> dstoreJoin(messageArgs[1]);                    // When a Dstore joins the controller.
+                case Protocol.STORE_ACK_TOKEN -> dstoreStoreAck(messageArgs[1]);           //ADD ACK HERE
+                case Protocol.REMOVE_ACK_TOKEN -> dstoreRemoveAck(messageArgs[1]);         //ADD ACK HERE
                 default -> System.err.println("Error: malformed message [" + messageArgs + "] recieved from [Port:" + connectedSocket.getPort() + "]."); // Malformed message is recieved.
             }
         }
@@ -186,11 +211,68 @@ public class Controller {
          * @param filesize The size of the file the client wants to store.
          */
         private void clientStore(String filename, String filesize) {
+            // Checks if the file that wants to be stored is already in the system, if so it sends an error and stops processing.
+            if (indexes.containsKey(filename)) {
+                try { sendMessage(Protocol.ERROR_FILE_ALREADY_EXISTS_TOKEN, null, connectedSocket); }
+                catch (IOException exception) { System.err.println("Error: unable to send file already exists error to port: " + connectedSocket.getPort()); }
+                finally{ return; }
+            }
 
-            // UPDATES INDEX (SEND ERROR IF INDEX ALREADY EXISTS)
+            // Checks if there isn't enough Dstores for the operation to occour, if so it sends an error and stops processing.
+            if (indexes.size() < replicationFactor) {
+                try { sendMessage(Protocol.ERROR_NOT_ENOUGH_DSTORES_TOKEN, null, connectedSocket); }
+                catch (IOException exception) { System.err.println("Error: unable to send not enough dstores error to port: " + connectedSocket.getPort()); }
+                finally{ return; }
+            }
+
+            // Adds the file to the HashMap of indexes with the state of "store in progress" (plus to a filesize HashMap)
             indexes.put(filename, Index.STORE_PROGRESS_TOKEN);
+            fileSize.put(filename, filesize);
 
-            // SELECTS R DSTORES (SEND ERROR IF LESS THEN R DSTORES)
+            // Creates a latch for the current file so we can wait for its completion.
+            CountDownLatch currentLatch = new CountDownLatch(replicationFactor);
+            fileLatches.put(filename, currentLatch);
+
+            // Extracts all the Dstores into an array then creates a message argument containing the first R ports to save to.
+            Set<Integer> setOfDstores = dstores.keySet();
+            Integer[] currentDstores = setOfDstores.stream().toArray(n -> new Integer[n]);
+            String messageArguments = "";
+            for (int i = 0; i < replicationFactor; i++) { messageArguments += (currentDstores[i] + " "); }
+
+            // Sends the Dstores to the client where we want the data to be stored.
+            try { sendMessage(Protocol.STORE_TO_TOKEN, messageArguments, connectedSocket); }
+
+            // Catches issues that occour when the message cant be received by the client (ends operation and removes index/latch).
+            catch (IOException exception) {
+                System.err.println("Error: (" + exception + "), unable to join controller.");
+                indexes.remove(filename);
+                fileLatches.remove(filename);
+                return;
+            }
+
+            // Trys checking if all Dstores have recieved the message
+            try {
+                // If the files are stored in all Dstores in time then store complete is sent and the index is updated to reflect this.
+                if (fileLatches.get(filename).await(timeoutMilliseconds, TimeUnit.MILLISECONDS)) {
+                    indexes.put(filename, Index.STORE_COMPLETE_TOKEN);
+                    sendMessage(Protocol.STORE_COMPLETE_TOKEN, null, connectedSocket);
+                    //MAYBE MAKE IT ADD THE FILE TO ALL THE DSTORE???
+                }
+
+                // As file is though to have not properly been saved it is removed from the system.
+                else { indexes.remove(filename); }
+            }
+
+            // Sends error if an error occurs during either the latching or sending the message to the client.
+            catch (Exception exception) {
+                System.err.println("Error: Unable to makesure files are saved (exception: " + exception + ").");
+                indexes.remove(filename);
+            }
+
+            // Removes the latch as its no longer needed.
+            finally { fileLatches.remove(filename); }
+
+            // MAYBE MAKE DSTORES INFO STORED IN THERE OWN OBJECT? (PLUS MAKE INDEX ENUMS).
 
             // SEND DSTORES TO CLIENT, (RECORD FILE NAME, CLIENT PORT AND DSTORES PORTS IN A HASH MAP, REMOVE PORT AFTER GETTING AN ACK TOKEN)
             // CHECK FOR ALL RECIEVED UPDATE INDEX FOR FILE AND SEND MESSAGE TO INITIAL CLIENT IF GOTTEN WITHIN TIMEOUT (IF NOT THEN JUST EXIT THIS).
@@ -231,6 +313,36 @@ public class Controller {
 
             // Rebalances the storage system as a new Dstore has joined.
             storageRebalanceOperation();
+        }
+
+        /**
+         * Function which handles when a particular Dstore is storing a new file sent by a client.
+         * @param filename The name of the file the particular Dstore want's stored.
+         */
+        private void dstoreStoreAck(String filename) {
+            // Check if the file is supposed to be getting stored (if not, it exits, giving us an error message in the console).
+            if (!indexes.get(filename).equals(Index.STORE_PROGRESS_TOKEN)) {
+                System.err.println("Error: acknowledging storage of file which has the incorrect index (its '" + indexes.get(filename) + "').");
+                return;
+            }
+
+            // Counts down the latch to show are client thread that this Dstore has the file.
+            fileLatches.get(filename).countDown();
+        }
+
+        /**
+         * Function which handles when a particular Dstore is removing the file a client asked it to.
+         * @param filename The name of the file the particular Dstore want's removed.
+         */
+        private void dstoreRemoveAck(String filename) {
+            // Check if the file is supposed to be getting removed (if not, it exits, giving us an error message in the console).
+            if (!indexes.get(filename).equals(Index.REMOVE_PROGRESS_TOKEN)) {
+                System.err.println("Error: acknowledging removal of file which has the incorrect index (its '" + indexes.get(filename) + "').");
+                return;
+            }
+
+            // Counts down the latch to show are client thread that this Dstore has removed the file.
+            fileLatches.get(filename).countDown();
         }
     }
 }
