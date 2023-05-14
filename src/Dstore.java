@@ -285,9 +285,26 @@ public class Dstore {
          * @param filename The name of the file the client wants to remove.
          */
         private void clientRemove(String filename) {
-            //TRY TO REMOVE FILE FROM THE DSTORE
-            //IF SUCCESSFUL LET THE CONTROLLER KNOW
-            //ELSE SEND ERROR FOR NOT HAVING FILE TO CONTROLLER
+            // Creates a new File object in reference to the file we are trying to remove from the Dstore.
+            File newFile = new File(fileFolder + File.separator + filename);
+
+            //Checks if the file exits in the system, if so it trys to delete it.
+            if (newFile.exists()) {
+                // File tries to get deleted, if so acknoledgement is sent to the Controller.
+                if (newFile.delete()) {
+                    try{ sendMessage(Protocol.REMOVE_ACK_TOKEN, filename, controllerSocket); }
+                    catch (IOException exception) { System.err.println("Error: unable to tell controller that we removed the file."); }
+                }
+
+                // If the file can't be deleted it logs an error as the file could still exist in the Dstore.
+                else { System.err.println("Error: unable to remove the file from the system."); }
+            }
+
+            // Try's to tell the controller that the Dstore doesn't have the file.
+            else {
+                try{ sendMessage(Protocol.ERROR_FILE_DOES_NOT_EXISTS_TOKEN, filename, controllerSocket); }
+                catch (IOException exception) { System.err.println("Error: unable to tell controller that the file doesn't exists at the Dstore."); }
+            }
         }
 
         /**

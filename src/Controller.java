@@ -198,14 +198,15 @@ public class Controller {
 
             // Uses switch to check which message the port sent and run the required function.
             switch(messageArgs[0]) {
-                case Protocol.STORE_TOKEN -> clientStore(messageArgs[1], messageArgs[2]);  // When a client wants a files to be store in the system.
-                case Protocol.LOAD_TOKEN -> clientLoad(messageArgs[1]);                    // When a client wants to get a file from the system.
-                case Protocol.RELOAD_TOKEN -> clientReload(messageArgs[1]);                // Whem a client wants a file from the system but the given Dstore doesn't work.
-                case Protocol.REMOVE_TOKEN -> clientRemove(messageArgs[1]);                // When a client wants a file to be removed from the system.
-                case Protocol.LIST_TOKEN -> clientList();                                  // When a client wants a list of all files in the system.
-                case Protocol.JOIN_TOKEN -> dstoreJoin(messageArgs[1]);                    // When a Dstore joins the controller.
-                case Protocol.STORE_ACK_TOKEN -> dstoreStoreAck(messageArgs[1]);           //ADD ACK HERE
-                case Protocol.REMOVE_ACK_TOKEN -> dstoreRemoveAck(messageArgs[1]);         //ADD ACK HERE
+                case Protocol.STORE_TOKEN -> clientStore(messageArgs[1], messageArgs[2]);               // When a client wants a files to be store in the system.
+                case Protocol.LOAD_TOKEN -> clientLoad(messageArgs[1]);                                 // When a client wants to get a file from the system.
+                case Protocol.RELOAD_TOKEN -> clientReload(messageArgs[1]);                             // Whem a client wants a file from the system but the given Dstore doesn't work.
+                case Protocol.REMOVE_TOKEN -> clientRemove(messageArgs[1]);                             // When a client wants a file to be removed from the system.
+                case Protocol.LIST_TOKEN -> clientList();                                               // When a client wants a list of all files in the system.
+                case Protocol.JOIN_TOKEN -> dstoreJoin(messageArgs[1]);                                 // When a Dstore joins the controller.
+                case Protocol.STORE_ACK_TOKEN -> dstoreStoreAck(messageArgs[1]);                        // When a Dstore acknowledges storing a specific file.
+                case Protocol.REMOVE_ACK_TOKEN -> dstoreRemoveAck(messageArgs[1]);                      // When a Dstore acknowledges removing a specific file.
+                case Protocol.ERROR_FILE_DOES_NOT_EXISTS_TOKEN -> dstoreFileNotExist(messageArgs[1]);   // When a Dstore finds out it doesn't contain a given file during a remove process.
                 default -> System.err.println("Error: malformed message [" + messageArgs + "] recieved from [Port:" + connectedSocket.getPort() + "]."); // Malformed message is recieved.
             }
         }
@@ -261,7 +262,6 @@ public class Controller {
                 if (fileLatches.get(filename).await(timeoutMilliseconds, TimeUnit.MILLISECONDS)) {
                     indexes.put(filename, Index.STORE_COMPLETE_TOKEN);
                     sendMessage(Protocol.STORE_COMPLETE_TOKEN, null, connectedSocket);
-                    //MAYBE MAKE IT ADD THE FILE TO ALL THE DSTORES FILE ARRAYLISTS???
                 }
 
                 // As file is though to have not properly been saved it is removed from the system.
@@ -394,7 +394,6 @@ public class Controller {
                     indexes.put(filename, Index.REMOVE_COMPLETE_TOKEN);
                     fileSize.remove(filename);
                     sendMessage(Protocol.REMOVE_COMPLETE_TOKEN, null, connectedSocket);
-                    //MAYBE MAKE IT REMOVE THE FILE TO ALL THE DSTORES FILE ARRAYLISTS???
                 }
             }
 
@@ -458,6 +457,9 @@ public class Controller {
 
             // Counts down the latch to show are client thread that this Dstore has the file.
             fileLatches.get(filename).countDown();
+
+            // As the file is now known to be stored at this Dstore it is added to the Controllers HashMap logging such fact.
+            dstores.get(connectedSocket.getPort()).add(filename);
         }
 
         /**
@@ -473,6 +475,19 @@ public class Controller {
 
             // Counts down the latch to show are client thread that this Dstore has removed the file.
             fileLatches.get(filename).countDown();
+
+            // As the file is now known to be removed at this Dstore it is removed from the Controllers HashMap logging such fact.
+            dstores.get(connectedSocket.getPort()).remove(filename);
+        }
+
+        /**
+         * Function which deals with the problem when we try to remove a file that doesn't exists.
+         * @param filename The name of the file we tried to remove.
+         */
+        private void dstoreFileNotExist(String filename) {
+            //Lets the sysyem know the file was never there before acknowledging it like if the file needed to be removed.
+            System.err.println("Error: tried to remove file '" + filename + "' from Dstore with port '" + connectedSocket.getPort() +"' while file doesn't exists there.");
+            dstoreRemoveAck(filename);
         }
     }
 }
