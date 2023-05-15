@@ -217,8 +217,8 @@ public class Controller {
          * @param filesize The size of the file the client wants to store.
          */
         private void clientStore(String filename, String filesize) {
-            // Checks if the file that wants to be stored is already in the system, if so it sends an error and stops processing.
-            if (indexes.containsKey(filename)) {
+            // Checks if the file that wants to be stored is already in the system (and not completed it's removal), if so it sends an error and stops processing.
+            if (indexes.containsKey(filename) && (indexes.get(filename) != Index.REMOVE_COMPLETE_TOKEN)) {
                 try { sendMessage(Protocol.ERROR_FILE_ALREADY_EXISTS_TOKEN, null, connectedSocket); }
                 catch (IOException exception) { System.err.println("Error: unable to send file already exists error to port: " + connectedSocket.getPort()); }
                 finally{ return; }
@@ -300,8 +300,8 @@ public class Controller {
          * @param filename The name of the file the client wants to load from a new Dstore.
          */
         private void clientReload(String filename) {
-            // Checks if the file that wants to load exists in the system, if not it sends an error and stops processing.
-            if (!indexes.containsKey(filename)) {
+            // Checks if the file that the client wants to load doesn't exists (or hasn't completed its store) in the system, if so it sends an error and stops processing.
+            if (!indexes.containsKey(filename) || (indexes.get(filename) != Index.STORE_COMPLETE_TOKEN)) {
                 try { sendMessage(Protocol.ERROR_FILE_DOES_NOT_EXISTS_TOKEN, null, connectedSocket); }
                 catch (IOException exception) { System.err.println("Error: unable to send file doesn't exists error to port: " + connectedSocket.getPort()); }
                 finally{ return; }
@@ -348,8 +348,8 @@ public class Controller {
          * @param filename The name of the file the client wants to remove.
          */
         private void clientRemove(String filename) {
-            // Checks if the file that wants to be removed is not in the system, if so it sends an error and stops processing.
-            if (!indexes.containsKey(filename)) {
+            // Checks if the file that the client wants to load doesn't exists (or hasn't completed its store) in the system, if so it sends an error and stops processing.
+            if (!indexes.containsKey(filename) || (indexes.get(filename) != Index.STORE_COMPLETE_TOKEN)) {
                 try { sendMessage(Protocol.ERROR_FILE_DOES_NOT_EXISTS_TOKEN, null, connectedSocket); }
                 catch (IOException exception) { System.err.println("Error: unable to send file doesn't exists error to port: " + connectedSocket.getPort()); }
                 finally{ return; }
@@ -417,9 +417,9 @@ public class Controller {
                 finally{ return; }
             }
 
-            // Extracts all the files that exits from the indexes Hashmap.
+            // Extracts all the files that exist in the indexes Hashmap that are fully stored in the system.
             ArrayList<String> allFiles = new ArrayList<>();
-            indexes.forEach((file,context) -> { allFiles.add(file);});
+            indexes.forEach((file,context) -> { if(context == Index.STORE_COMPLETE_TOKEN) {allFiles.add(file);} });
 
             // Creates the arguement which includes all the files previously extracted.
             String argument = "";
