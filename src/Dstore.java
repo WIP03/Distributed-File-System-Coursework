@@ -1,8 +1,12 @@
 import java.io.*;
 import java.net.InetAddress;
 import java.net.ServerSocket;
-import java.net.Socket;import java.net.SocketException;
+import java.net.Socket;
+import java.net.SocketException;
 
+/**
+ * Used for storing data in the distributed system, works with the main controller to make sure files are balanced around the given replication factor.
+ */
 public class Dstore {
 
     /**

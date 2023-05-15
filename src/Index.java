@@ -1,3 +1,6 @@
+/**
+ * Contains all file indexes for the system.
+ */
 public abstract class Index {
 
     // Indexes for Storage.
