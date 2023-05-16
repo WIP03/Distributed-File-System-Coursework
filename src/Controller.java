@@ -72,7 +72,6 @@ public class Controller {
         // Sets up the main values inputted from the command line.
         try {
             controllerPort = Integer.parseInt(args[0]);
-            System.out.println("Port is: " + args[0]);
             replicationFactor = Integer.parseInt(args[1]);
             timeoutMilliseconds = Integer.parseInt(args[2]);
             rebalancePeriod = Integer.parseInt(args[3]);
@@ -80,7 +79,10 @@ public class Controller {
             indexes = new HashMap<>();
             fileLatches = new HashMap<>();
             dstores = new HashMap<>();
-        } catch (Exception exception) {
+        }
+
+        // Returns when incorrect arguements are inputted on the command line.
+        catch (Exception exception) {
             System.err.println("Error: (" + exception + "), arguments are either of wrong type or not inputted at all.");
             return;
         }
@@ -133,7 +135,6 @@ public class Controller {
      * Main loop for the controller, trys to connect new sockets to the system then starts there own thread.
      */
     private static void socketLoop(){
-        System.out.println("Socket loop begins here");
         // Trys accepting the new socket before running its own thread.
         try {
             Socket newConnection = controllerSocket.accept();
@@ -182,11 +183,7 @@ public class Controller {
             try {
                 BufferedReader reader = new BufferedReader(new InputStreamReader(connectedSocket.getInputStream()));
                 String currentMessage;
-                while((currentMessage = reader.readLine()) != null){
-                    System.out.println(currentMessage+" received");
-                    //ADD CODE FOR CALLING PARSER HERE
-                    //messageParser(currentMessage);
-                }
+                while((currentMessage = reader.readLine()) != null){ messageParser(currentMessage); }
                 connectedSocket.close();
             }
 
@@ -216,7 +213,7 @@ public class Controller {
                 case Protocol.STORE_ACK_TOKEN -> dstoreStoreAck(messageArgs[1]);                        // When a Dstore acknowledges storing a specific file.
                 case Protocol.REMOVE_ACK_TOKEN -> dstoreRemoveAck(messageArgs[1]);                      // When a Dstore acknowledges removing a specific file.
                 case Protocol.ERROR_FILE_DOES_NOT_EXISTS_TOKEN -> dstoreFileNotExist(messageArgs[1]);   // When a Dstore finds out it doesn't contain a given file during a remove process.
-                default -> System.err.println("Error: malformed message [" + messageArgs + "] recieved from [Port:" + connectedSocket.getPort() + "]."); // Malformed message is recieved.
+                default -> System.err.println("Error: malformed message [" + String.join(" ", messageArgs) + "] recieved from [Port:" + connectedSocket.getPort() + "]."); // Malformed message is recieved.
             }
         }
 
@@ -285,11 +282,6 @@ public class Controller {
 
             // Removes the latch as its no longer needed.
             finally { fileLatches.remove(filename); }
-
-            // MAYBE MAKE DSTORES INFO STORED IN THERE OWN OBJECT? (PLUS MAKE INDEX ENUMS).
-
-            // SEND DSTORES TO CLIENT, (RECORD FILE NAME, CLIENT PORT AND DSTORES PORTS IN A HASH MAP, REMOVE PORT AFTER GETTING AN ACK TOKEN)
-            // CHECK FOR ALL RECIEVED UPDATE INDEX FOR FILE AND SEND MESSAGE TO INITIAL CLIENT IF GOTTEN WITHIN TIMEOUT (IF NOT THEN JUST EXIT THIS).
         }
 
         /**
@@ -336,7 +328,7 @@ public class Controller {
                 // Checks if there arn't any Dstores left to load files from, if so an error is sent to the client.
                 if (possibleDstores.isEmpty()) {
                     sendMessage(Protocol.ERROR_LOAD_TOKEN, null, connectedSocket);
-                    System.out.println("Error: Unable to load file (with name '" + filename + "') from any Dstore");
+                    System.err.println("Error: Unable to load file (with name '" + filename + "') from any Dstore");
                 }
 
                 // Else it sends a random avalible Dstrore for the client to load the file from (and adds it to loaded from ports).
@@ -459,8 +451,16 @@ public class Controller {
          */
         private void dstoreStoreAck(String filename) {
             // Check if the file is supposed to be getting stored (if not, it exits, giving us an error message in the console).
-            if (!indexes.get(filename).equals(Index.STORE_PROGRESS_TOKEN)) {
-                System.err.println("Error: acknowledging storage of file which has the incorrect index (its '" + indexes.get(filename) + "').");
+            try {
+                if (!indexes.get(filename).equals(Index.STORE_PROGRESS_TOKEN)) {
+                    System.err.println("Error: acknowledging storage of file which has the incorrect index (its '" + indexes.get(filename) + "').");
+                    return;
+                }
+            }
+
+            // Incase the file isn't in the system (causing an exception for the if statement).
+            catch (NullPointerException exception) {
+                System.err.println("Error: file " + filename + " is not even in the system so shouldn't be stored to.");
                 return;
             }
 
@@ -477,8 +477,16 @@ public class Controller {
          */
         private void dstoreRemoveAck(String filename) {
             // Check if the file is supposed to be getting removed (if not, it exits, giving us an error message in the console).
-            if (!indexes.get(filename).equals(Index.REMOVE_PROGRESS_TOKEN)) {
-                System.err.println("Error: acknowledging removal of file which has the incorrect index (its '" + indexes.get(filename) + "').");
+            try {
+                if (!indexes.get(filename).equals(Index.REMOVE_PROGRESS_TOKEN)) {
+                    System.err.println("Error: acknowledging removal of file which has the incorrect index (its '" + indexes.get(filename) + "').");
+                    return;
+                }
+            }
+
+            // Incase the file isn't in the system (causing an exception for the if statement).
+            catch (NullPointerException exception) {
+                System.err.println("Error: file " + filename + " is not even in the system so shouldn't be trying to remove it.");
                 return;
             }
 

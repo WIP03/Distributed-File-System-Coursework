@@ -44,20 +44,23 @@ public class Dstore {
             controllerPort = Integer.parseInt(args[1]);
             timeoutMilliseconds = Integer.parseInt(args[2]);
             fileFolder = args[3];
-        } catch (Exception exception) {
+        }
+
+        // Returns when incorrect arguements are inputted on the command line.
+        catch (Exception exception) {
             System.err.println("Error: (" + exception + "), arguments are either of wrong type or not inputted at all.");
             return;
         }
 
         // If succesful in generating the values for the Dstore then all its old data is removed (if the folder exists).
         File folder = new File(fileFolder);
-        if (!folder.exists()) {folder.mkdir();}
-        else {clearFileFolder(folder);}
+        if (!folder.exists()) { folder.mkdirs(); } //MAYBE CHECK FOR IF WE CAN'T MAKE PATH???
+        else { clearFileFolder(folder); }
 
         // Creates the socket for the controller then connects the Dstore to the controller via said socket.
         try {
             controllerSocket = new Socket(InetAddress.getLoopbackAddress(), controllerPort);
-            sendMessage(Protocol.JOIN_TOKEN, String.valueOf(dstorePort), controllerSocket);
+            sendMessage("JOIN", String.valueOf(dstorePort), controllerSocket);
         }
 
         // Catches any issue that could occour when connecting to the controller. (MAYBE PUT ME INSIDE OF LOOP TRY CATCH TO CLOSE SOCKET AT END).
@@ -164,11 +167,7 @@ public class Dstore {
             try {
                 BufferedReader reader = new BufferedReader(new InputStreamReader(connectedSocket.getInputStream()));
                 String currentMessage;
-                while((currentMessage = reader.readLine()) != null){
-                    System.out.println(currentMessage+" received");
-                    //ADD CODE FOR CALLING PARSER HERE
-                    //messageParser(currentMessage);
-                }
+                while((currentMessage = reader.readLine()) != null){ messageParser(currentMessage); }
                 connectedSocket.close();
             }
             // If the program encounters an excpetion an error is flagged.
@@ -178,9 +177,8 @@ public class Dstore {
         /**
          * Function which is used to parse the messages sent by a Client or the Controller.
          * @param message The message which is being sent by the Client or Controller.
-         * @param port The port that the Client or Controller is connected on.
          */
-        private void messageParser(String message, String port) {
+        private void messageParser(String message) {
             // Splits the inputted message into an array.
             String messageArgs[] = message.split(" ");
 
@@ -191,7 +189,7 @@ public class Dstore {
                 case Protocol.REMOVE_TOKEN -> clientRemove(messageArgs[1]);                                  // When the controller wants the Dstore to remove a particular file.
                 case Protocol.REBALANCE_TOKEN -> controllerRebalance(message);                               // When the Dstore is to be changed by sending file to other Dstores and removing its own files.
                 case Protocol.REBALANCE_STORE_TOKEN -> dstoreRebalanceStore(messageArgs[1], messageArgs[2]); // When another Dstore is sending a file to the current Dstore.
-                default -> System.err.println("Malformed message [" + messageArgs + "] recieved from [Port:" + port + "]."); // Malformed message is recieved.
+                default -> System.err.println("Error: malformed message [" + String.join(" ", messageArgs) + "] recieved from [Port:" + connectedSocket.getPort() + "]."); // Malformed message is recieved.
             }
         }
 
