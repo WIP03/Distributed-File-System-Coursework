@@ -163,6 +163,11 @@ public class Controller {
         private Boolean isDstore = false;
 
         /**
+         * Used by dstore's, contains the port which is used to connect to said Dstore.
+         */
+        private Integer dstorePort;
+
+        /**
          * Stores a list of ports which the client has already loaded from (resets on new normal load).
          */
         private ArrayList<Integer> loadedFromPorts = new ArrayList<>();
@@ -191,7 +196,7 @@ public class Controller {
             catch(Exception e) { System.err.println("Error: " + e); }
 
             // If the thread is for a Dstore then it removes it from the list on disconnect to help with all operations (including rebalance).
-            finally { if (isDstore) {dstores.remove(connectedSocket.getPort());} }
+            finally { if (isDstore) {dstores.remove(dstorePort);} }
         }
 
         /**
@@ -231,7 +236,8 @@ public class Controller {
             }
 
             // Checks if there isn't enough Dstores for the operation to occour, if so it sends an error and stops processing.
-            if (indexes.size() < replicationFactor) {
+            if (dstores.size() < replicationFactor) {
+                System.out.print("Size is: " + dstores.size() + " Expected is: " + replicationFactor);
                 try { sendMessage(Protocol.ERROR_NOT_ENOUGH_DSTORES_TOKEN, null, connectedSocket); }
                 catch (IOException exception) { System.err.println("Error: unable to send not enough dstores error to port: " + connectedSocket.getPort()); }
                 finally{ return; }
@@ -271,7 +277,7 @@ public class Controller {
                 }
 
                 // As file is though to have not properly been saved it is removed from the system.
-                else { indexes.remove(filename); }
+                else { indexes.remove(filename); System.err.println("Error: unable to complete store operation.");}
             }
 
             // Sends error if an error occurs during either the latching or sending the message to the client.
@@ -309,7 +315,8 @@ public class Controller {
             }
 
             // Checks if there isn't enough Dstores for the operation to occour, if so it sends an error and stops processing.
-            if (indexes.size() < replicationFactor) {
+            if (dstores.size() < replicationFactor) {
+                System.out.print("Size is: " + dstores.size() + " Expected is: " + replicationFactor);
                 try { sendMessage(Protocol.ERROR_NOT_ENOUGH_DSTORES_TOKEN, null, connectedSocket); }
                 catch (IOException exception) { System.err.println("Error: unable to send not enough dstores error to port: " + connectedSocket.getPort()); }
                 finally{ return; }
@@ -333,9 +340,10 @@ public class Controller {
 
                 // Else it sends a random avalible Dstrore for the client to load the file from (and adds it to loaded from ports).
                 else {
-                    int argument = possibleDstores.get((int) Math.random() * possibleDstores.size());
-                    sendMessage(Protocol.LOAD_FROM_TOKEN, argument, connectedSocket);
-                    loadedFromPorts.add(connectedSocket.getPort());
+                    int argumentPort = possibleDstores.get((int) Math.random() * possibleDstores.size());
+                    String argumentSize = fileSize.get(filename);
+                    sendMessage(Protocol.LOAD_FROM_TOKEN, (argumentPort + " " + argumentSize), connectedSocket);
+                    loadedFromPorts.add(argumentPort);
                 }
 
             }
@@ -357,7 +365,8 @@ public class Controller {
             }
 
             // Checks if there isn't enough Dstores for the operation to occour, if so it sends an error and stops processing.
-            if (indexes.size() < replicationFactor) {
+            if (dstores.size() < replicationFactor) {
+                System.out.print("Size is: " + dstores.size() + " Expected is: " + replicationFactor);
                 try { sendMessage(Protocol.ERROR_NOT_ENOUGH_DSTORES_TOKEN, null, connectedSocket); }
                 catch (IOException exception) { System.err.println("Error: unable to send not enough dstores error to port: " + connectedSocket.getPort()); }
                 finally{ return; }
@@ -412,7 +421,8 @@ public class Controller {
          */
         private void clientList() {
             // Checks if there isn't enough Dstores for the operation to occour, if so it sends an error and stops processing.
-            if (indexes.size() < replicationFactor) {
+            if (dstores.size() < replicationFactor) {
+                System.out.print("Size is: " + dstores.size() + " Expected is: " + replicationFactor);
                 try { sendMessage(Protocol.ERROR_NOT_ENOUGH_DSTORES_TOKEN, null, connectedSocket); }
                 catch (IOException exception) { System.err.println("Error: unable to send not enough dstores error to port: " + connectedSocket.getPort()); }
                 finally{ return; }
@@ -421,10 +431,12 @@ public class Controller {
             // Extracts all the files that exist in the indexes Hashmap that are fully stored in the system.
             ArrayList<String> allFiles = new ArrayList<>();
             indexes.forEach((file,context) -> { if(context == Index.STORE_COMPLETE_TOKEN) {allFiles.add(file);} });
+            System.out.println(indexes.size());
 
             // Creates the arguement which includes all the files previously extracted.
             String argument = "";
             for (String file : allFiles) { argument += file + " "; }
+            System.out.println(argument);
 
             // Trys to send the client the list of all files in the system.
             try { sendMessage(Protocol.LIST_TOKEN, argument, connectedSocket); }
@@ -437,9 +449,11 @@ public class Controller {
         private void dstoreJoin(String port) {
             // Lets the Thread know that it is a Dstore for later use.
             isDstore = true;
+            dstorePort = Integer.parseInt(port);
 
             // Adds it to the HashMap of Dstores ready to be updated when files are added.
-            dstores.put(Integer.parseInt(port), new ArrayList<String>());
+            dstores.put(dstorePort, new ArrayList<String>());
+            System.out.println("NEW DSTORE, SIZE: " + dstores.size());
 
             // Rebalances the storage system as a new Dstore has joined.
             storageRebalanceOperation();
@@ -468,7 +482,7 @@ public class Controller {
             fileLatches.get(filename).countDown();
 
             // As the file is now known to be stored at this Dstore it is added to the Controllers HashMap logging such fact.
-            dstores.get(connectedSocket.getPort()).add(filename);
+            dstores.get(dstorePort).add(filename);
         }
 
         /**
@@ -494,7 +508,7 @@ public class Controller {
             fileLatches.get(filename).countDown();
 
             // As the file is now known to be removed at this Dstore it is removed from the Controllers HashMap logging such fact.
-            dstores.get(connectedSocket.getPort()).remove(filename);
+            dstores.get(dstorePort).remove(filename);
         }
 
         /**

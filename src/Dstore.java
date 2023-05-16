@@ -181,6 +181,7 @@ public class Dstore {
         private void messageParser(String message) {
             // Splits the inputted message into an array.
             String messageArgs[] = message.split(" ");
+            System.out.println(String.join(" ", messageArgs) );
 
             // Uses switch to check which message the port sent and run the required function.
             switch(messageArgs[0]) {
@@ -214,7 +215,7 @@ public class Dstore {
                 OutputStream fileWriter = new BufferedOutputStream(new FileOutputStream(fileFolder + File.separator + filename));
 
                 // Transfers the file from the input stream to the file.
-                byte[] buf = new byte[Integer.parseInt(filesize)]; // Does this need to be file size??
+                byte[] buf = new byte[2048]; // Does this need to be file size??
                 int bytesRead;
                 while((bytesRead = reader.read(buf)) != -1) {
                     fileWriter.write(buf, 0, bytesRead);
@@ -288,7 +289,8 @@ public class Dstore {
          */
         private void clientRemove(String filename) {
             // Creates a new File object in reference to the file we are trying to remove from the Dstore.
-            File newFile = new File(fileFolder + File.separator + filename);
+            File newFile = new File(fileFolder + "/" + filename);
+            System.out.println(fileFolder + "/" + filename);
 
             //Checks if the file exits in the system, if so it trys to delete it.
             if (newFile.exists()) {
