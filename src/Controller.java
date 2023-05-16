@@ -71,10 +71,11 @@ public class Controller {
 
         // Sets up the main values inputted from the command line.
         try {
-            controllerPort = Integer.getInteger(args[0]);
-            replicationFactor = Integer.getInteger(args[1]);
-            timeoutMilliseconds = Integer.getInteger(args[2]);
-            rebalancePeriod = Integer.getInteger(args[3]);
+            controllerPort = Integer.parseInt(args[0]);
+            System.out.println("Port is: " + args[0]);
+            replicationFactor = Integer.parseInt(args[1]);
+            timeoutMilliseconds = Integer.parseInt(args[2]);
+            rebalancePeriod = Integer.parseInt(args[3]);
             fileSize = new HashMap<>();
             indexes = new HashMap<>();
             fileLatches = new HashMap<>();
@@ -91,7 +92,7 @@ public class Controller {
         }
 
         // Returns an error if a problem happens trying to bind the port before the loop.
-        catch (IOException exception){
+        catch (Exception exception){
             System.err.println("Error: (" + exception + "), unable to bind the port.");
         }
 
@@ -132,6 +133,7 @@ public class Controller {
      * Main loop for the controller, trys to connect new sockets to the system then starts there own thread.
      */
     private static void socketLoop(){
+        System.out.println("Socket loop begins here");
         // Trys accepting the new socket before running its own thread.
         try {
             Socket newConnection = controllerSocket.accept();
@@ -445,7 +447,7 @@ public class Controller {
             isDstore = true;
 
             // Adds it to the HashMap of Dstores ready to be updated when files are added.
-            dstores.put(Integer.getInteger(port), new ArrayList<String>());
+            dstores.put(Integer.parseInt(port), new ArrayList<String>());
 
             // Rebalances the storage system as a new Dstore has joined.
             storageRebalanceOperation();

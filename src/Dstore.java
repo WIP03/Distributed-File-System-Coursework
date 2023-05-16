@@ -40,12 +40,12 @@ public class Dstore {
 
         // Sets up the main values inputted from the command line.
         try {
-            dstorePort = Integer.getInteger(args[0]);
-            controllerPort = Integer.getInteger(args[1]);
-            timeoutMilliseconds = Integer.getInteger(args[2]);
+            dstorePort = Integer.parseInt(args[0]);
+            controllerPort = Integer.parseInt(args[1]);
+            timeoutMilliseconds = Integer.parseInt(args[2]);
             fileFolder = args[3];
         } catch (Exception exception) {
-            System.err.println("Not all arguments inputted: " + exception);
+            System.err.println("Error: (" + exception + "), arguments are either of wrong type or not inputted at all.");
             return;
         }
 
@@ -216,7 +216,7 @@ public class Dstore {
                 OutputStream fileWriter = new BufferedOutputStream(new FileOutputStream(fileFolder + File.separator + filename));
 
                 // Transfers the file from the input stream to the file.
-                byte[] buf = new byte[Integer.getInteger(filesize)]; // Does this need to be file size??
+                byte[] buf = new byte[Integer.parseInt(filesize)]; // Does this need to be file size??
                 int bytesRead;
                 while((bytesRead = reader.read(buf)) != -1) {
                     fileWriter.write(buf, 0, bytesRead);
