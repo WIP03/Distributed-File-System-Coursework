@@ -3,6 +3,13 @@ import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import java.util.ArrayList;import static java.util.stream.Collectors.toCollection;
 
 /**
  * Used for storing data in the distributed system, works with the main controller to make sure files are balanced around the given replication factor.
@@ -188,6 +195,7 @@ public class Dstore {
                 case Protocol.STORE_TOKEN -> clientStore(messageArgs[1], messageArgs[2]);                    // When the client wants to store a file at the particular Dstore.
                 case Protocol.LOAD_DATA_TOKEN -> clientLoadData(messageArgs[1]);                             // When the client wants particular data from the Dstore.
                 case Protocol.REMOVE_TOKEN -> clientRemove(messageArgs[1]);                                  // When the controller wants the Dstore to remove a particular file.
+                case Protocol.LIST_TOKEN -> controllerList();                                                // When the controller wants to get all the files stored in the current Dstore.
                 case Protocol.REBALANCE_TOKEN -> controllerRebalance(message);                               // When the Dstore is to be changed by sending file to other Dstores and removing its own files.
                 case Protocol.REBALANCE_STORE_TOKEN -> dstoreRebalanceStore(messageArgs[1], messageArgs[2]); // When another Dstore is sending a file to the current Dstore.
                 default -> System.err.println("Error: malformed message [" + String.join(" ", messageArgs) + "] recieved from [Port:" + connectedSocket.getPort() + "]."); // Malformed message is recieved.
@@ -308,6 +316,29 @@ public class Dstore {
             else {
                 try{ sendMessage(Protocol.ERROR_FILE_DOES_NOT_EXISTS_TOKEN, filename, controllerSocket); }
                 catch (IOException exception) { System.err.println("Error: unable to tell controller that the file doesn't exists at the Dstore."); }
+            }
+        }
+
+        /**
+         * Function which is used when the controller wants to find out all the files that are stored at this given dstore.
+         */
+        private void controllerList(){
+            // Trys to get all the files in the dstore and send them to the controller to help in rebalance.
+            try {
+                // Gets all the files in the dstores directory relative to it (should allow sub directories if the files name includes them).
+                ArrayList<String> files = Files.walk(Paths.get(".")).filter(Files::isRegularFile).map(Path::toFile).map(File::getAbsolutePath).collect(toCollection(ArrayList::new));
+
+                // Converts the ArrayList of all the files to an easy to send single String.
+                String argument = "";
+                for (String file : files) { argument += file + " "; }
+
+                // Sends the files the dstore has stored (with paths if they have them.
+                sendMessage(Protocol.LIST_TOKEN, argument, controllerSocket);
+            }
+
+            // When either the Dstore can't get the files which its trying to store or can't send a message to the controller.
+            catch (IOException exception) {
+                System.err.println("Error: unable to send controller list of avalible files in the dstore (Exception: " + exception + " ).");
             }
         }
 

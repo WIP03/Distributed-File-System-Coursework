@@ -5,10 +5,7 @@ import java.io.PrintWriter;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -36,6 +33,16 @@ public class Controller {
      * The amount of seconds between rebalance periods.
      */
     private static Integer rebalancePeriod;
+
+    /**
+     * Is used when verifying that all dstores have returned there files lists to the controller.
+     */
+    private static CountDownLatch rebalanceList;
+
+    /**
+     * Is used when verifying that all dstores have completed there required rebalance operations.
+     */
+    private static CountDownLatch rebalanceComplete;
 
     /**
      * Contains all the current files in the system and the size of the given file.
@@ -110,7 +117,66 @@ public class Controller {
     /**
      * Used to rebalance the storage system. (IMPROVE DESCRIPTION LATER)
      */
-    private static void storageRebalanceOperation() {}
+    private static void storageRebalanceOperation() {
+        // Creates a new latch for getting all the current files in each dstore.
+        rebalanceList = new CountDownLatch(dstores.size());
+
+        // Goes through all Dstores sending the command for gettings its current files.
+        ArrayList<Integer> possibleDstores = new ArrayList<>();
+        dstores.forEach((store,files) -> {
+            // Creates the socket for the next Dstore and sends a message to it asking for its current files.
+            try {
+                Socket dstoreSocket = new Socket(InetAddress.getLoopbackAddress(), store);
+                sendMessage(Protocol.LIST_TOKEN, null, dstoreSocket);
+            }
+            // Catches any issue that could occour when connecting to the Dstore.
+            catch (IOException exception) {
+                System.err.println("Error: (" + exception + "), unable to join dstore.");
+                return;
+            }
+        });
+
+        // Trys checking if all Dstores have recieved the message, if so it log's it (If not the rebalance process still continues but an error is logged).
+        try { if (rebalanceList.await(timeoutMilliseconds, TimeUnit.MILLISECONDS)) { System.out.println("Successfully updated file data for all dstores.");} }
+
+        // Sends error if not all dstores have updated there lists (or acknowledged it to the controller).
+        catch (Exception exception) { System.err.println("Error: Unable to get all updated list, a dstore may have failed (exception: " + exception + ")."); }
+
+        // Extracts each arraylist of the dstore, extracts there files names then adds ones which are unique.
+        ArrayList<String> storedFiles = new ArrayList<>();
+        dstores.values().forEach((arrayList) -> arrayList.forEach((value) -> { if(!storedFiles.contains(value)) {storedFiles.add(value);}; }));
+
+        // Removes indexes of files which are not in any dstore.
+        indexes.keySet().removeIf(file -> !(storedFiles.contains(file)));
+
+        // Gets the files which needed to be removed from dstores (have files still but should have had a completed removal).
+        ArrayList<String> filesToRemove = new ArrayList<>();
+        indexes.keySet().forEach(file -> { if(indexes.get(file).equals(Index.REMOVE_COMPLETE_TOKEN)) filesToRemove.add(file);} );
+
+        // Creates an Hashmap for allocating the new dstores and an array of its ports so files can be easily allocated to it.
+        HashMap<Integer,ArrayList<String>> newDstores = new HashMap<>();
+        dstores.keySet().forEach((dstore) -> newDstores.put(dstore, new ArrayList<String>()));
+        Integer newDstoreNames[] = (Integer[]) newDstores.keySet().toArray();
+
+        // Goes through each files the system has (thats valid) and allocates them to their new Dstores.
+        int position = 0;
+        for (String file : indexes.keySet()) {
+            // Doesn't add files to the new system that are suppossed to be removed.
+            if (!filesToRemove.contains(file)) {
+                // Repeats the same file based on the replication factor of the controller
+                for (int i = 0; i < replicationFactor; i++) {
+                    // Adds the file to the current Dstore in the list.
+                    newDstores.get(newDstoreNames[position]).add(file);
+
+                    // Changes the Dstore we add a file to, if adding to it will make it an out of range it resets the position (else it adds).
+                    if (position == (newDstoreNames.length - 1)) {position = 0;}
+                    else {position++;}
+                }
+            }
+        }
+
+        //ALLOCATION CODE GOES HERE
+    }
 
     /**
      * Function which is used to send a particular message to a given socket.
@@ -188,7 +254,7 @@ public class Controller {
             try {
                 BufferedReader reader = new BufferedReader(new InputStreamReader(connectedSocket.getInputStream()));
                 String currentMessage;
-                while((currentMessage = reader.readLine()) != null){ messageParser(currentMessage); }
+                while((currentMessage = reader.readLine()) != null){ messageParser(currentMessage); } //MAYBE CHANGE WE FOR REBALANCE TO WORK
                 connectedSocket.close();
             }
 
@@ -209,15 +275,15 @@ public class Controller {
 
             // Uses switch to check which message the port sent and run the required function.
             switch(messageArgs[0]) {
-                case Protocol.STORE_TOKEN -> clientStore(messageArgs[1], messageArgs[2]);               // When a client wants a files to be store in the system.
-                case Protocol.LOAD_TOKEN -> clientLoad(messageArgs[1]);                                 // When a client wants to get a file from the system.
-                case Protocol.RELOAD_TOKEN -> clientReload(messageArgs[1]);                             // Whem a client wants a file from the system but the given Dstore doesn't work.
-                case Protocol.REMOVE_TOKEN -> clientRemove(messageArgs[1]);                             // When a client wants a file to be removed from the system.
-                case Protocol.LIST_TOKEN -> clientList();                                               // When a client wants a list of all files in the system.
-                case Protocol.JOIN_TOKEN -> dstoreJoin(messageArgs[1]);                                 // When a Dstore joins the controller.
-                case Protocol.STORE_ACK_TOKEN -> dstoreStoreAck(messageArgs[1]);                        // When a Dstore acknowledges storing a specific file.
-                case Protocol.REMOVE_ACK_TOKEN -> dstoreRemoveAck(messageArgs[1]);                      // When a Dstore acknowledges removing a specific file.
-                case Protocol.ERROR_FILE_DOES_NOT_EXISTS_TOKEN -> dstoreFileNotExist(messageArgs[1]);   // When a Dstore finds out it doesn't contain a given file during a remove process.
+                case Protocol.STORE_TOKEN -> clientStore(messageArgs[1], messageArgs[2]);                       // When a client wants a files to be store in the system.
+                case Protocol.LOAD_TOKEN -> clientLoad(messageArgs[1]);                                         // When a client wants to get a file from the system.
+                case Protocol.RELOAD_TOKEN -> clientReload(messageArgs[1]);                                     // Whem a client wants a file from the system but the given Dstore doesn't work.
+                case Protocol.REMOVE_TOKEN -> clientRemove(messageArgs[1]);                                     // When a client wants a file to be removed from the system.
+                case Protocol.LIST_TOKEN -> { if(isDstore) {dstoreListAck(messageArgs);} else {clientList();}}  // When a client wants a list of all files in the system or a dstore is returning a list of all files it has.
+                case Protocol.JOIN_TOKEN -> dstoreJoin(messageArgs[1]);                                         // When a Dstore joins the controller.
+                case Protocol.STORE_ACK_TOKEN -> dstoreStoreAck(messageArgs[1]);                                // When a Dstore acknowledges storing a specific file.
+                case Protocol.REMOVE_ACK_TOKEN -> dstoreRemoveAck(messageArgs[1]);                              // When a Dstore acknowledges removing a specific file.
+                case Protocol.ERROR_FILE_DOES_NOT_EXISTS_TOKEN -> dstoreFileNotExist(messageArgs[1]);           // When a Dstore finds out it doesn't contain a given file during a remove process.
                 default -> System.err.println("Error: malformed message [" + String.join(" ", messageArgs) + "] recieved from [Port:" + connectedSocket.getPort() + "]."); // Malformed message is recieved.
             }
         }
@@ -229,7 +295,8 @@ public class Controller {
          */
         private void clientStore(String filename, String filesize) {
             // Checks if the file that wants to be stored is already in the system (and not completed it's removal), if so it sends an error and stops processing.
-            if (indexes.containsKey(filename) && (indexes.get(filename) != Index.REMOVE_COMPLETE_TOKEN)) {
+            if (indexes.containsKey(filename) && !(indexes.get(filename).equals(Index.REMOVE_COMPLETE_TOKEN))) {
+                System.err.println("File There: (" + indexes.containsKey(filename) + ") File Store: (" + (indexes.get(filename) != Index.STORE_COMPLETE_TOKEN) + ")");
                 try { sendMessage(Protocol.ERROR_FILE_ALREADY_EXISTS_TOKEN, null, connectedSocket); }
                 catch (IOException exception) { System.err.println("Error: unable to send file already exists error to port: " + connectedSocket.getPort()); }
                 finally{ return; }
@@ -308,7 +375,8 @@ public class Controller {
          */
         private void clientReload(String filename) {
             // Checks if the file that the client wants to load doesn't exists (or hasn't completed its store) in the system, if so it sends an error and stops processing.
-            if (!indexes.containsKey(filename) || (indexes.get(filename) != Index.STORE_COMPLETE_TOKEN)) {
+            if (!indexes.containsKey(filename) || !(indexes.get(filename).equals(Index.STORE_COMPLETE_TOKEN))) {
+                System.err.println("File Not There: (" + !indexes.containsKey(filename) + ") File Store: (" + (indexes.get(filename) != Index.STORE_COMPLETE_TOKEN) + ")");
                 try { sendMessage(Protocol.ERROR_FILE_DOES_NOT_EXISTS_TOKEN, null, connectedSocket); }
                 catch (IOException exception) { System.err.println("Error: unable to send file doesn't exists error to port: " + connectedSocket.getPort()); }
                 finally{ return; }
@@ -358,7 +426,8 @@ public class Controller {
          */
         private void clientRemove(String filename) {
             // Checks if the file that the client wants to load doesn't exists (or hasn't completed its store) in the system, if so it sends an error and stops processing.
-            if (!indexes.containsKey(filename) || (indexes.get(filename) != Index.STORE_COMPLETE_TOKEN)) {
+            if (!indexes.containsKey(filename) || !(indexes.get(filename).equals(Index.STORE_COMPLETE_TOKEN))) {
+                System.err.println("File Not There: (" + !indexes.containsKey(filename) + ") File Store: (" + (indexes.get(filename) != Index.STORE_COMPLETE_TOKEN) + ")");
                 try { sendMessage(Protocol.ERROR_FILE_DOES_NOT_EXISTS_TOKEN, null, connectedSocket); }
                 catch (IOException exception) { System.err.println("Error: unable to send file doesn't exists error to port: " + connectedSocket.getPort()); }
                 finally{ return; }
@@ -436,7 +505,6 @@ public class Controller {
             // Creates the arguement which includes all the files previously extracted.
             String argument = "";
             for (String file : allFiles) { argument += file + " "; }
-            System.out.println(argument);
 
             // Trys to send the client the list of all files in the system.
             try { sendMessage(Protocol.LIST_TOKEN, argument, connectedSocket); }
@@ -509,6 +577,22 @@ public class Controller {
 
             // As the file is now known to be removed at this Dstore it is removed from the Controllers HashMap logging such fact.
             dstores.get(dstorePort).remove(filename);
+        }
+
+        /**
+         * Function which handles when a particular Dstore is returning it's current files stored to the controller
+         * @param arguments The initial message sent by the dstore which must have data extracted to give the controller its new files.
+         */
+        private void dstoreListAck(String[] arguments) {
+            // Counts down the latch to show the controller that a Dstore has returned a list of its files.
+            rebalanceList.countDown();
+
+            // Converts the arguments to an ArrayList removing the token from it as its not needed
+            ArrayList<String> files = new ArrayList<String>(Arrays.asList(arguments));
+            files.remove(0);
+
+            // Replaces the old value for files in the dstore with the new ones which where just retrieved.
+            dstores.put(dstorePort, files);
         }
 
         /**
