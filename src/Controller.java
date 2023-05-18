@@ -413,7 +413,6 @@ public class Controller {
 
             // Checks if there isn't enough Dstores for the operation to occour, if so it sends an error and stops processing.
             if (dstores.size() < replicationFactor) {
-                System.out.print("Size is: " + dstores.size() + " Expected is: " + replicationFactor);
                 try { sendMessage(Protocol.ERROR_NOT_ENOUGH_DSTORES_TOKEN, null, connectedSocket); }
                 catch (IOException exception) { System.err.println("Error: unable to send not enough dstores error to port: " + connectedSocket.getPort()); }
                 finally{ return; }
@@ -497,7 +496,6 @@ public class Controller {
 
             // Checks if there isn't enough Dstores for the operation to occour, if so it sends an error and stops processing.
             if (dstores.size() < replicationFactor) {
-                System.out.print("Size is: " + dstores.size() + " Expected is: " + replicationFactor);
                 try { sendMessage(Protocol.ERROR_NOT_ENOUGH_DSTORES_TOKEN, null, connectedSocket); }
                 catch (IOException exception) { System.err.println("Error: unable to send not enough dstores error to port: " + connectedSocket.getPort()); }
                 finally{ return; }
@@ -548,7 +546,6 @@ public class Controller {
 
             // Checks if there isn't enough Dstores for the operation to occour, if so it sends an error and stops processing.
             if (dstores.size() < replicationFactor) {
-                System.out.print("Size is: " + dstores.size() + " Expected is: " + replicationFactor);
                 try { sendMessage(Protocol.ERROR_NOT_ENOUGH_DSTORES_TOKEN, null, connectedSocket); }
                 catch (IOException exception) { System.err.println("Error: unable to send not enough dstores error to port: " + connectedSocket.getPort()); }
                 finally{ return; }
@@ -608,7 +605,6 @@ public class Controller {
         private void clientList() {
             // Checks if there isn't enough Dstores for the operation to occour, if so it sends an error and stops processing.
             if (dstores.size() < replicationFactor) {
-                System.out.print("Size is: " + dstores.size() + " Expected is: " + replicationFactor);
                 try { sendMessage(Protocol.ERROR_NOT_ENOUGH_DSTORES_TOKEN, null, connectedSocket); }
                 catch (IOException exception) { System.err.println("Error: unable to send not enough dstores error to port: " + connectedSocket.getPort()); }
                 finally{ return; }
@@ -617,7 +613,6 @@ public class Controller {
             // Extracts all the files that exist in the indexes Hashmap that are fully stored in the system.
             ArrayList<String> allFiles = new ArrayList<>();
             indexes.forEach((file,context) -> { if(context == Index.STORE_COMPLETE_TOKEN) {allFiles.add(file);} });
-            System.out.println(indexes.size());
 
             // Creates the arguement which includes all the files previously extracted.
             String argument = "";
@@ -638,7 +633,6 @@ public class Controller {
 
             // Adds it to the HashMap of Dstores ready to be updated when files are added.
             dstores.put(dstorePort, new ArrayList<String>());
-            System.out.println("NEW DSTORE, SIZE: " + dstores.size());
 
             // Rebalances the storage system as a new Dstore has joined.
             storageRebalanceOperation();

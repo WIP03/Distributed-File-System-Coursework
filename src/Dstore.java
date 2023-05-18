@@ -1,5 +1,5 @@
 import java.io.*;
-import java.net.*;
+import java.lang.reflect.Array;import java.net.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -190,7 +190,6 @@ public class Dstore {
         private void messageParser(String message) {
             // Splits the inputted message into an array.
             String messageArgs[] = message.split(" ");
-            System.out.println(String.join(" ", messageArgs) );
 
             // Uses switch to check which message the port sent and run the required function.
             switch(messageArgs[0]) {
@@ -329,7 +328,8 @@ public class Dstore {
             // Trys to get all the files in the dstore and send them to the controller to help in rebalance.
             try {
                 // Gets all the files in the dstores directory relative to it (should allow sub directories if the files name includes them).
-                ArrayList<String> files = Files.walk(Paths.get(".")).filter(Files::isRegularFile).map(Path::toFile).map(File::getAbsolutePath).collect(toCollection(ArrayList::new));
+                File[] filesList = new File(fileFolder).listFiles();
+                ArrayList<String> files = getFiles(filesList, null);
 
                 // Converts the ArrayList of all the files to an easy to send single String.
                 String argument = "";
@@ -343,6 +343,25 @@ public class Dstore {
             catch (IOException exception) {
                 System.err.println("Error: unable to send controller list of avalible files in the dstore (Exception: " + exception + " ).");
             }
+        }
+
+        /**
+         * Gets all the files in the dstores folders.
+         * @param filesList The current file list for the directory we are reading.
+         * @param foldername The name of the folder.
+         * @return All the files the Dstore has.
+         */
+        private ArrayList<String> getFiles(File[] filesList, String foldername) {
+            // Gets and returns all the files in the folder.
+            ArrayList<String> files = new ArrayList<>();
+            if(filesList != null) {
+                for(File f: filesList) {
+                    if(f.isDirectory()) {files.addAll(getFiles(f.listFiles(), (f.getName() + "/")));}
+                    if(foldername == null) { files.add(f.getName()); }
+                    else { files.add(foldername + f.getName()); }
+                }
+            }
+            return files;
         }
 
         /**
