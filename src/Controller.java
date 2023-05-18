@@ -7,7 +7,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.*;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeUnit;import java.util.stream.Collectors;
 
 /**
  * Main brains of the system, controls file allocation and how said files should be stored after a rebalance.
@@ -128,6 +128,7 @@ public class Controller {
             try {
                 Socket dstoreSocket = new Socket(InetAddress.getLoopbackAddress(), store);
                 sendMessage(Protocol.LIST_TOKEN, null, dstoreSocket);
+                dstoreSocket.close();
             }
             // Catches any issue that could occour when connecting to the Dstore.
             catch (IOException exception) {
@@ -151,7 +152,10 @@ public class Controller {
 
         // Gets the files which needed to be removed from dstores (have files still but should have had a completed removal).
         ArrayList<String> filesToRemove = new ArrayList<>();
-        indexes.keySet().forEach(file -> { if(indexes.get(file).equals(Index.REMOVE_COMPLETE_TOKEN)) filesToRemove.add(file);} );
+        indexes.keySet().forEach(file -> { if(indexes.get(file).equals(Index.REMOVE_COMPLETE_TOKEN) || indexes.get(file).equals(Index.REMOVE_PROGRESS_TOKEN)) filesToRemove.add(file);} );
+
+        // Removes all the unneeded files from the index.
+        indexes.keySet().removeIf(file -> filesToRemove.contains(file));
 
         // Creates an Hashmap for allocating the new dstores and an array of its ports so files can be easily allocated to it.
         HashMap<Integer,ArrayList<String>> newDstores = new HashMap<>();
@@ -161,35 +165,67 @@ public class Controller {
         // Goes through each files the system has (thats valid) and allocates them to their new Dstores.
         int position = 0;
         for (String file : indexes.keySet()) {
-            // Doesn't add files to the new system that are suppossed to be removed.
-            if (!filesToRemove.contains(file)) {
-                // Repeats the same file based on the replication factor of the controller
-                for (int i = 0; i < replicationFactor; i++) {
-                    // Adds the file to the current Dstore in the list.
-                    newDstores.get(newDstoreNames[position]).add(file);
+            // Repeats the same file based on the replication factor of the controller
+            for (int i = 0; i < replicationFactor; i++) {
+                // Adds the file to the current Dstore in the list.
+                newDstores.get(newDstoreNames[position]).add(file);
 
-                    // Changes the Dstore we add a file to, if adding to it will make it an out of range it resets the position (else it adds).
-                    if (position == (newDstoreNames.length - 1)) {position = 0;}
-                    else {position++;}
-                }
+                // Changes the Dstore we add a file to, if adding to it will make it an out of range it resets the position (else it adds).
+                if (position == (newDstoreNames.length - 1)) {position = 0;}
+                else {position++;}
             }
         }
 
-        //CREATE HashMap<String,ArrayList<Integer>>, POPULATE WITH FILES AND ARRAYLISTS (FIRST VALUE IS DSTORE FROM, REST IS TO).
-        /////FOR EACH FILES FIND FIRST DSTORE WHICH HAS IT AND ADD IT TO ARRAYLIST
-        /////INSIDE LOOP GET ALL DSTORES WHICH CONTAIN IT AND IT TO THE LOOP (IF ITS NOT THE FIRST ONE IN ARRAYLIST).
+        // Creates an ArrayList for storing files and how they need to move, adds the first value to each files ArrayList so we know which Dstore the files coming from.
+        HashMap<String, ArrayList<Integer>> filesMoving = new HashMap<>();
+        indexes.keySet().forEach(file -> filesMoving.put(file, new ArrayList<>()));
+        indexes.keySet().forEach(file -> filesMoving.get(file).add(newDstores.keySet().stream().filter(storeName -> newDstores.get(storeName).contains(file)).findFirst().orElse(1))); //Uses orElse for syntax (will always return a Port).
 
-        //CREATE HashMap<Integer,ArrayList<String>>, POPULATE WITH FILES TO DELETE FOR EACH DSTORE
-        /////FOR EACH STORE COMPARE THE NEW AND OLD DSTORES HASHMAPS VALUES, FILES IN OLD BUT NOT NEW ADD TO REMOVE HASHMAP.
+        // Goes through the new Dstores, adds the store to a hash value in filesMoving if it is suppossed to contain the files, the store doesn't already have the file and if the store isn't already in said files filesMoving.
+        newDstores.keySet().forEach(store -> { indexes.keySet().forEach(file -> { if (newDstores.get(store).contains(file) && !dstores.get(store).contains(file) && !filesMoving.get(file).contains(store)) filesMoving.get(file).add(store); }); });
 
-        //SEND REBALANCE COMMAND TO EACH DSTORE
-        /////FOR THE PORT GET EACH FILE IT NEEDS TO SEND AND ADD ON THE END THE NUMBER OF PORTS AND THERE VALUES
-        /////THEN IN LOOP FOR PORT INCLUDE ALL THE FILES WHICH NEED TO BE DELETED FROM THE DSTORE
-        /////AT THE END SEND THE MESSAGE
+        // DeepCopies the old dstores hashmap, loops through it and removes files which are still in the new ones store.
+        HashMap<Integer, ArrayList<String>> portFilesToRemove = new HashMap<>(dstores);
+        dstores.keySet().forEach(store -> dstores.get(store).forEach(file -> { if (newDstores.get(store).contains(file)) {portFilesToRemove.get(store).remove(file);} }));
+
+        // Creates a latch for completing the rebalance on all dstores.
+        rebalanceComplete = new CountDownLatch(newDstores.size());
+
+        // Sends the rebalance command to each Dstore.
+        for (Integer store : newDstores.keySet() ) {
+            // Sets up the base values for the Loop.
+            String argumentMove = "";
+            ArrayList<String> filesToMove = new ArrayList<>(filesMoving.keySet());
+
+            // Loops through all the files adding any moves to argumentMove when its ok to.
+            for (String file : filesToMove) {
+                // Only adds moving for this Dstore if the first value it has is the same as the current store (e.g. its for said store).
+                if (filesMoving.get(file).get(0) == store) {
+                    argumentMove += store + " "; // Adds the name of the store to the argument.
+                    filesMoving.get(file).remove(0); // Removes the store the move is for as its no longer needed.
+                    argumentMove += + filesMoving.get(file).size() + " " + filesMoving.get(file).stream().map(Object::toString).collect(Collectors.joining(" ")) + " "; // Adds the number of files and the files themself to the argument.
+                }
+            };
+
+            // Extracts all the values for this store that need to be removed.
+            String argumentRemove = String.join(" ",portFilesToRemove.get(store));
+
+            // Try's sending to the dstore the arguments for the rebalance.
+            try {
+                Socket socket = new Socket(InetAddress.getLocalHost(), store);
+                sendMessage(Protocol.REBALANCE_TOKEN, (argumentMove + argumentRemove), socket);
+                socket.close();
+            }
+
+            // Lets the user know if a rebalance isn't possible
+            catch (Exception exception) {System.err.println("Error: unable to rebalance Dstore with port '" + store +"'.");}
+        };
 
         //ACKNOWLEDGE CODE US LATCHES.
 
         //REMOVE FILES WHICH HAVE REMOVE COMPLETE INDEX
+
+        //AFTER ADD NEEDED CODE TO MAKES THIS FUNCTION ONLY WHEN NO STORE OR REMOVE ARE IN ACTION, ALSO ADD PAUSE ON THREADS WHILE ITS ONGOING (MAYBE BOOLEAN WHICH IS TRUE DURING REBALANCE WHICH STOPS NEW PARSING TILL FALSE).
     }
 
     /**
