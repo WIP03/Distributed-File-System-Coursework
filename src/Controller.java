@@ -1,4 +1,4 @@
-import java.io.BufferedReader;
+import java.awt.event.ActionListener;import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
@@ -35,6 +35,16 @@ public class Controller {
     private static Integer rebalancePeriod;
 
     /**
+     * A value which store the current number of store and remove operations that are going on.
+     */
+    private static Integer currentStoreRemoveCount;
+
+    /**
+     * A value which lets threads know if the system is currently going under a rebalance.
+     */
+    private static Boolean isSystemRebalancing;
+
+    /**
      * Is used when verifying that all dstores have returned there files lists to the controller.
      */
     private static CountDownLatch rebalanceList;
@@ -68,6 +78,8 @@ public class Controller {
      */
     private static HashMap<Integer,ArrayList<String>> dstores;
 
+    private static Timer rebalanceTimer;
+
     /**
      * Main setup of the controller, setups up its main values then stats the programs main loop.
      * @param args Values which are used in setting up the controller.
@@ -82,10 +94,13 @@ public class Controller {
             replicationFactor = Integer.parseInt(args[1]);
             timeoutMilliseconds = Integer.parseInt(args[2]);
             rebalancePeriod = Integer.parseInt(args[3]);
+            currentStoreRemoveCount = 0;
+            isSystemRebalancing = false;
             fileSize = new HashMap<>();
             indexes = new HashMap<>();
             fileLatches = new HashMap<>();
             dstores = new HashMap<>();
+            rebalanceTimer = new Timer();
         }
 
         // Returns when incorrect arguements are inputted on the command line.
@@ -93,6 +108,15 @@ public class Controller {
             System.err.println("Error: (" + exception + "), arguments are either of wrong type or not inputted at all.");
             return;
         }
+
+        // Sets up a schedule for running a rebalance (with code inside).
+        rebalanceTimer.schedule(new TimerTask() {
+            @Override
+            public void run() {
+                // Only rebalances the system when no rebalance operation is ongoing.
+                if (!isSystemRebalancing) {storageRebalanceOperation();}
+            }
+        }, (1000*rebalancePeriod));
 
         // Trys binding the server socket to the port before starting the controllers main loop.
         try {
@@ -111,6 +135,9 @@ public class Controller {
                 try {controllerSocket.close();}
                 catch(IOException exception) {System.err.println("Error: (" + exception + "), couldn't close port.");}
             }
+
+            // Stops the timer as the program is over.
+            rebalanceTimer.cancel();
         }
     }
 
@@ -118,6 +145,12 @@ public class Controller {
      * Used to rebalance the storage system. (IMPROVE DESCRIPTION LATER)
      */
     private static void storageRebalanceOperation() {
+        // Loops rebalance until no store or remove operations occour
+        while (currentStoreRemoveCount > 0) {}
+
+        // Lets the system know that a rebalance has just started (stops all future commands until its false).
+        isSystemRebalancing = true;
+
         // Creates a new latch for getting all the current files in each dstore.
         rebalanceList = new CountDownLatch(dstores.size());
 
@@ -133,7 +166,6 @@ public class Controller {
             // Catches any issue that could occour when connecting to the Dstore.
             catch (IOException exception) {
                 System.err.println("Error: (" + exception + "), unable to join dstore.");
-                return;
             }
         });
 
@@ -240,9 +272,10 @@ public class Controller {
             System.err.println("Error: Unable to makesure all rebalancing occoured (exception: " + exception + ").");
         }
 
-        // Makes sure that the new rebalanced dstores are thought of as the new setup (even if some dstore rebalances fail).
+        // Makes sure that the new rebalanced dstores are thought of as the new setup (even if some dstore rebalances fail), then lets the system know the rebalance has ended.
         finally{
             dstores = new HashMap<>(newDstores);
+            isSystemRebalancing = false;
         }
 
         //AFTER ADD NEEDED CODE TO MAKES THIS FUNCTION ONLY WHEN NO STORE OR REMOVE ARE IN ACTION, ALSO ADD PAUSE ON THREADS WHILE ITS ONGOING (MAYBE BOOLEAN WHICH IS TRUE DURING REBALANCE WHICH STOPS NEW PARSING TILL FALSE).
@@ -324,7 +357,12 @@ public class Controller {
             try {
                 BufferedReader reader = new BufferedReader(new InputStreamReader(connectedSocket.getInputStream()));
                 String currentMessage;
-                while((currentMessage = reader.readLine()) != null){ messageParser(currentMessage); } //MAYBE CHANGE WE FOR REBALANCE TO WORK
+
+                // Loops through each newline sent (Pauses during a rebalance operation).
+                while((currentMessage = reader.readLine()) != null){
+                    while(isSystemRebalancing) {}
+                    messageParser(currentMessage);
+                }
                 connectedSocket.close();
             }
 
@@ -381,6 +419,9 @@ public class Controller {
                 finally{ return; }
             }
 
+            // Lets system know a store operation has started.
+            currentStoreRemoveCount += 1;
+
             // Adds the file to the HashMap of indexes with the state of "store in progress" (plus to a filesize HashMap)
             indexes.put(filename, Index.STORE_PROGRESS_TOKEN);
             fileSize.put(filename, filesize);
@@ -398,11 +439,12 @@ public class Controller {
             // Sends the Dstores to the client where we want the data to be stored.
             try { sendMessage(Protocol.STORE_TO_TOKEN, messageArguments, connectedSocket); }
 
-            // Catches issues that occour when the message cant be received by the client (ends operation and removes index/latch).
+            // Catches issues that occour when the message cant be received by the client (ends operation and removes index/latch/storeCount).
             catch (IOException exception) {
                 System.err.println("Error: (" + exception + "), unable to join controller.");
                 indexes.remove(filename);
                 fileLatches.remove(filename);
+                currentStoreRemoveCount -= 1;
                 return;
             }
 
@@ -424,8 +466,8 @@ public class Controller {
                 indexes.remove(filename);
             }
 
-            // Removes the latch as its no longer needed.
-            finally { fileLatches.remove(filename); }
+            // Removes the latch as its no longer needed and removes the store from operation count.
+            finally { fileLatches.remove(filename); currentStoreRemoveCount -= 1;}
         }
 
         /**
@@ -512,6 +554,9 @@ public class Controller {
                 finally{ return; }
             }
 
+            // Lets the system know a remove operation has started.
+            currentStoreRemoveCount += 1;
+
             // Adds the file to the HashMap of indexes with the state of "store in progress" (plus to a filesize HashMap).
             indexes.put(filename, Index.REMOVE_PROGRESS_TOKEN);
 
@@ -532,6 +577,7 @@ public class Controller {
                     // Catches any issue that could occour when connecting to the Dstore.
                     catch (IOException exception) {
                         System.err.println("Error: (" + exception + "), unable to join controller.");
+                        currentStoreRemoveCount -= 1;
                         return;
                     }
                 }
@@ -553,7 +599,7 @@ public class Controller {
             }
 
             // Removes the latch as its no longer needed.
-            finally { fileLatches.remove(filename); }
+            finally { fileLatches.remove(filename); currentStoreRemoveCount -= 1;}
         }
 
         /**
