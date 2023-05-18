@@ -2,12 +2,12 @@ import java.awt.event.ActionListener;import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
-import java.net.InetAddress;
+import java.lang.reflect.Array;import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.*;
+import java.sql.Time;import java.util.*;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;import java.util.stream.Collectors;
+import java.util.concurrent.Executors;import java.util.concurrent.ScheduledExecutorService;import java.util.concurrent.TimeUnit;import java.util.stream.Collectors;
 
 /**
  * Main brains of the system, controls file allocation and how said files should be stored after a rebalance.
@@ -78,7 +78,12 @@ public class Controller {
      */
     private static HashMap<Integer,ArrayList<String>> dstores;
 
+
+    private static HashMap<Integer, Socket> dstoreSockets;
+
     private static Timer rebalanceTimer;
+
+    private static Long lastRebalance;
 
     /**
      * Main setup of the controller, setups up its main values then stats the programs main loop.
@@ -100,6 +105,7 @@ public class Controller {
             indexes = new HashMap<>();
             fileLatches = new HashMap<>();
             dstores = new HashMap<>();
+            dstoreSockets = new HashMap<>();
             rebalanceTimer = new Timer();
         }
 
@@ -110,13 +116,17 @@ public class Controller {
         }
 
         // Sets up a schedule for running a rebalance (with code inside).
-        rebalanceTimer.schedule(new TimerTask() {
+        lastRebalance = System.currentTimeMillis();
+
+        /*rebalanceTimer.schedule(new TimerTask() {
             @Override
             public void run() {
                 // Only rebalances the system when no rebalance operation is ongoing.
-                if (!isSystemRebalancing) {storageRebalanceOperation();}
+                if (System.currentTimeMillis() - lastRebalance >= (1000*rebalancePeriod)) {
+                    synchronized (this) {storageRebalanceOperation();}
+                }
             }
-        }, (1000*rebalancePeriod));
+        }, (1000*rebalancePeriod));*/
 
         // Trys binding the server socket to the port before starting the controllers main loop.
         try {
@@ -144,7 +154,7 @@ public class Controller {
     /**
      * Used to rebalance the storage system. (IMPROVE DESCRIPTION LATER)
      */
-    private static void storageRebalanceOperation() {
+    private synchronized static void storageRebalanceOperation() {
         // Loops rebalance until no store or remove operations occour
         while (currentStoreRemoveCount > 0) {}
 
@@ -155,19 +165,17 @@ public class Controller {
         rebalanceList = new CountDownLatch(dstores.size());
 
         // Goes through all Dstores sending the command for gettings its current files.
-        ArrayList<Integer> possibleDstores = new ArrayList<>();
-        dstores.forEach((store,files) -> {
+        Set<Integer> dstoreNameSet = new HashSet<Integer>(dstores.keySet());
+        for (Integer store : dstoreNameSet) {
             // Creates the socket for the next Dstore and sends a message to it asking for its current files.
             try {
-                Socket dstoreSocket = new Socket(InetAddress.getLoopbackAddress(), store);
-                sendMessage(Protocol.LIST_TOKEN, null, dstoreSocket);
-                dstoreSocket.close();
+                sendMessage(Protocol.LIST_TOKEN, null, dstoreSockets.get(store));
             }
             // Catches any issue that could occour when connecting to the Dstore.
             catch (IOException exception) {
                 System.err.println("Error: (" + exception + "), unable to join dstore.");
             }
-        });
+        }
 
         // Trys checking if all Dstores have recieved the message, if so it log's it (If not the rebalance process still continues but an error is logged).
         try { if (rebalanceList.await(timeoutMilliseconds, TimeUnit.MILLISECONDS)) { System.out.println("Successfully updated file data for all dstores.");} }
@@ -192,7 +200,9 @@ public class Controller {
         // Creates an Hashmap for allocating the new dstores and an array of its ports so files can be easily allocated to it.
         HashMap<Integer,ArrayList<String>> newDstores = new HashMap<>();
         dstores.keySet().forEach((dstore) -> newDstores.put(dstore, new ArrayList<String>()));
-        Integer newDstoreNames[] = (Integer[]) newDstores.keySet().toArray();
+        Set<Integer> newDstoreNameSet = newDstores.keySet();
+        ArrayList<Integer> newDstoreNames = new ArrayList<>();
+        newDstoreNameSet.forEach(name -> newDstoreNames.add(name));
 
         // Goes through each files the system has (thats valid) and allocates them to their new Dstores.
         int position = 0;
@@ -200,10 +210,10 @@ public class Controller {
             // Repeats the same file based on the replication factor of the controller
             for (int i = 0; i < replicationFactor; i++) {
                 // Adds the file to the current Dstore in the list.
-                newDstores.get(newDstoreNames[position]).add(file);
+                newDstores.get(newDstoreNames.get(position)).add(file);
 
                 // Changes the Dstore we add a file to, if adding to it will make it an out of range it resets the position (else it adds).
-                if (position == (newDstoreNames.length - 1)) {position = 0;}
+                if (position == (newDstoreNames.size() - 1)) {position = 0;}
                 else {position++;}
             }
         }
@@ -219,9 +229,6 @@ public class Controller {
         // DeepCopies the old dstores hashmap, loops through it and removes files which are still in the new ones store.
         HashMap<Integer, ArrayList<String>> portFilesToRemove = new HashMap<>(dstores);
         dstores.keySet().forEach(store -> dstores.get(store).forEach(file -> { if (newDstores.get(store).contains(file)) {portFilesToRemove.get(store).remove(file);} }));
-
-        // Creates a latch for completing the rebalance on all dstores.
-        rebalanceComplete = new CountDownLatch(newDstores.size());
 
         // Sends the rebalance command to each Dstore.
         for (Integer store : newDstores.keySet() ) {
@@ -247,24 +254,34 @@ public class Controller {
 
             // Try's sending to the dstore the arguments for the rebalance.
             try {
-                Socket socket = new Socket(InetAddress.getLocalHost(), store);
-                sendMessage(Protocol.REBALANCE_TOKEN, (moveCount + " " + argumentMove + " " + removeCount + " " + argumentRemove), socket);
-                socket.close();
+                // Generates the arguments for the message (so it works when either move count or remove count are zero).
+                String finalMess = new String();
+                if ((moveCount == 0) && (removeCount == 0)) {finalMess = ("0 0");}
+                else if (removeCount == 0) {finalMess = (moveCount + " " + argumentMove + " 0");}
+                else if (moveCount == 0) {finalMess = ("0 " + removeCount + " " + argumentRemove);}
+                else  {finalMess = (moveCount + " " + argumentMove + " " + removeCount + " " + argumentRemove);}
+
+                // Sends the message to the Dstore.
+                sendMessage(Protocol.REBALANCE_TOKEN, finalMess, dstoreSockets.get(store));
             }
 
             // Lets the user know if a rebalance isn't possible
             catch (Exception exception) {System.err.println("Error: unable to rebalance Dstore with port '" + store +"'.");}
         };
 
+        // Creates a latch for completing the rebalance on all dstores.
+        rebalanceComplete = new CountDownLatch(newDstores.size());
+
         // Trys checking if all Dstores have recieved the message
         try {
             // If the dstores are all rebalanced then it updates all the indexes noting that all files that exists in the system are complete.
-            if (rebalanceComplete.await(timeoutMilliseconds, TimeUnit.MILLISECONDS)) {
+            if (rebalanceComplete.await(timeoutMilliseconds*newDstores.size(), TimeUnit.MILLISECONDS)) {
                 indexes.replaceAll((file,index) -> index = Index.STORE_COMPLETE_TOKEN);
+                System.out.println("------------------ITS COMPLET THE REBALANCE IS COMPLET------------------");
             }
 
             // Happens if any dstore doesn't respond in time.
-            else { System.err.println("Error: unable to complete rebalance operation."); }
+            else { System.err.println("Error: unable to complete rebalance operation."); System.out.println("Latch Count: " + rebalanceComplete.getCount() + "Initial Count: " + newDstores.size());}
         }
 
         // Sends error if an error occurs during the latching.
@@ -276,6 +293,7 @@ public class Controller {
         finally{
             dstores = new HashMap<>(newDstores);
             isSystemRebalancing = false;
+            lastRebalance = System.currentTimeMillis();
         }
 
         //AFTER ADD NEEDED CODE TO MAKES THIS FUNCTION ONLY WHEN NO STORE OR REMOVE ARE IN ACTION, ALSO ADD PAUSE ON THREADS WHILE ITS ONGOING (MAYBE BOOLEAN WHICH IS TRUE DURING REBALANCE WHICH STOPS NEW PARSING TILL FALSE).
@@ -367,10 +385,11 @@ public class Controller {
             }
 
             // If the program encounters an excpetion an error is flagged.
-            catch(Exception e) { System.err.println("Error: " + e); }
+            catch(Exception e) { System.err.println("Error: -------------------------" ); e.printStackTrace();}
 
             // If the thread is for a Dstore then it removes it from the list on disconnect to help with all operations (including rebalance).
             finally { if (isDstore) {dstores.remove(dstorePort);} }
+            System.out.println(controllerSocket.getLocalPort() + " PARSE DONE");
         }
 
         /**
@@ -380,6 +399,7 @@ public class Controller {
         private void messageParser(String message) {
             // Splits the inputted message into an array.
             String messageArgs[] = message.split(" ");
+            System.out.println(controllerSocket.getLocalPort() + " " + connectedSocket.getLocalPort() + ") " + String.join(" ", messageArgs));
 
             // Uses switch to check which message the port sent and run the required function.
             switch(messageArgs[0]) {
@@ -395,6 +415,7 @@ public class Controller {
                 case Protocol.ERROR_FILE_DOES_NOT_EXISTS_TOKEN -> dstoreFileNotExist(messageArgs[1]);           // When a Dstore finds out it doesn't contain a given file during a remove process.
                 default -> System.err.println("Error: malformed message [" + String.join(" ", messageArgs) + "] recieved from [Port:" + connectedSocket.getPort() + "]."); // Malformed message is recieved.
             }
+            System.out.println(controllerSocket.getLocalPort() + " IS DONE");
         }
 
         /**
@@ -567,8 +588,7 @@ public class Controller {
                 if (files.contains(filename)) {
                     // Creates the socket for the Dstore which has the file then sends a message to it letting it know that it should remove said file
                     try {
-                        Socket dstoreSocket = new Socket(InetAddress.getLoopbackAddress(), store);
-                        sendMessage(Protocol.REMOVE_TOKEN, filename, dstoreSocket);
+                        sendMessage(Protocol.REMOVE_TOKEN, filename, dstoreSockets.get(dstorePort));
                     }
 
                     // Catches any issue that could occour when connecting to the Dstore.
@@ -633,9 +653,11 @@ public class Controller {
 
             // Adds it to the HashMap of Dstores ready to be updated when files are added.
             dstores.put(dstorePort, new ArrayList<String>());
+            try {dstoreSockets.put(dstorePort, new Socket(InetAddress.getLoopbackAddress(), dstorePort));}
+            catch (IOException exception) {System.err.println("Error: couldn't create socket for port '" + dstorePort + "'.");}
 
             // Rebalances the storage system as a new Dstore has joined.
-            storageRebalanceOperation();
+            //synchronized (this) {storageRebalanceOperation();};
         }
 
         /**

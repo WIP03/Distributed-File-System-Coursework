@@ -180,7 +180,8 @@ public class Dstore {
                 connectedSocket.close();
             }
             // If the program encounters an excpetion an error is flagged.
-            catch(Exception e) { System.err.println("Error: " + e); }
+            catch(Exception e) { System.err.println("Error: -----" + e); }
+            System.out.println(dstoreSocket.getLocalPort() + " PARSE DONE");
         }
 
         /**
@@ -190,6 +191,7 @@ public class Dstore {
         private void messageParser(String message) {
             // Splits the inputted message into an array.
             String messageArgs[] = message.split(" ");
+            System.out.println(dstoreSocket.getLocalPort() + " " + connectedSocket.getLocalPort() + ") " + String.join(" ", messageArgs));
 
             // Uses switch to check which message the port sent and run the required function.
             switch(messageArgs[0]) {
@@ -202,6 +204,7 @@ public class Dstore {
                 case Protocol.ACK_TOKEN -> dstoreRebalanceAck();                                             // When another Dstore has acknowledged its connection with us.
                 default -> System.err.println("Error: malformed message [" + String.join(" ", messageArgs) + "] recieved from [Port:" + connectedSocket.getPort() + "]."); // Malformed message is recieved.
             }
+            System.out.println(dstoreSocket.getLocalPort() + " IS DONE");
         }
 
         /**
@@ -411,7 +414,7 @@ public class Dstore {
             removeList.forEach(filename -> dstoreRebalanceRemove(filename));
 
             // Tells the controller that the rebalance is complete.
-            try{ sendMessage(Protocol.REBALANCE_COMPLETE_TOKEN, null, controllerSocket); }
+            try{ sendMessage(Protocol.REBALANCE_COMPLETE_TOKEN, null, controllerSocket); System.out.println("REBALANCE TOKEN IS SENT");}
             catch (IOException exception) { System.err.println("Error: unable to tell controller that we completed the rebalance."); }
         }
 
