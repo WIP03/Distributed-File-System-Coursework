@@ -195,6 +195,7 @@ public class Controller {
         for (Integer store : newDstores.keySet() ) {
             // Sets up the base values for the Loop.
             String argumentMove = "";
+            Integer moveCount = 0;
             ArrayList<String> filesToMove = new ArrayList<>(filesMoving.keySet());
 
             // Loops through all the files adding any moves to argumentMove when its ok to.
@@ -204,16 +205,18 @@ public class Controller {
                     argumentMove += store + " "; // Adds the name of the store to the argument.
                     filesMoving.get(file).remove(0); // Removes the store the move is for as its no longer needed.
                     argumentMove += + filesMoving.get(file).size() + " " + filesMoving.get(file).stream().map(Object::toString).collect(Collectors.joining(" ")) + " "; // Adds the number of files and the files themself to the argument.
+                    moveCount += 1; // Counts the number of file the argument wants to move.
                 }
             };
 
-            // Extracts all the values for this store that need to be removed.
+            // Extracts all the values for this store that need to be removed and gets the number of files this includes.
             String argumentRemove = String.join(" ",portFilesToRemove.get(store));
+            Integer removeCount = portFilesToRemove.get(store).size();
 
             // Try's sending to the dstore the arguments for the rebalance.
             try {
                 Socket socket = new Socket(InetAddress.getLocalHost(), store);
-                sendMessage(Protocol.REBALANCE_TOKEN, (argumentMove + argumentRemove), socket);
+                sendMessage(Protocol.REBALANCE_TOKEN, (moveCount + " " + argumentMove + " " + removeCount + " " + argumentRemove), socket);
                 socket.close();
             }
 
@@ -221,9 +224,26 @@ public class Controller {
             catch (Exception exception) {System.err.println("Error: unable to rebalance Dstore with port '" + store +"'.");}
         };
 
-        //ACKNOWLEDGE CODE US LATCHES.
+        // Trys checking if all Dstores have recieved the message
+        try {
+            // If the dstores are all rebalanced then it updates all the indexes noting that all files that exists in the system are complete.
+            if (rebalanceComplete.await(timeoutMilliseconds, TimeUnit.MILLISECONDS)) {
+                indexes.replaceAll((file,index) -> index = Index.STORE_COMPLETE_TOKEN);
+            }
 
-        //REMOVE FILES WHICH HAVE REMOVE COMPLETE INDEX
+            // Happens if any dstore doesn't respond in time.
+            else { System.err.println("Error: unable to complete rebalance operation."); }
+        }
+
+        // Sends error if an error occurs during the latching.
+        catch (Exception exception) {
+            System.err.println("Error: Unable to makesure all rebalancing occoured (exception: " + exception + ").");
+        }
+
+        // Makes sure that the new rebalanced dstores are thought of as the new setup (even if some dstore rebalances fail).
+        finally{
+            dstores = new HashMap<>(newDstores);
+        }
 
         //AFTER ADD NEEDED CODE TO MAKES THIS FUNCTION ONLY WHEN NO STORE OR REMOVE ARE IN ACTION, ALSO ADD PAUSE ON THREADS WHILE ITS ONGOING (MAYBE BOOLEAN WHICH IS TRUE DURING REBALANCE WHICH STOPS NEW PARSING TILL FALSE).
     }
@@ -333,6 +353,7 @@ public class Controller {
                 case Protocol.JOIN_TOKEN -> dstoreJoin(messageArgs[1]);                                         // When a Dstore joins the controller.
                 case Protocol.STORE_ACK_TOKEN -> dstoreStoreAck(messageArgs[1]);                                // When a Dstore acknowledges storing a specific file.
                 case Protocol.REMOVE_ACK_TOKEN -> dstoreRemoveAck(messageArgs[1]);                              // When a Dstore acknowledges removing a specific file.
+                case Protocol.REBALANCE_COMPLETE_TOKEN -> dstoreRebalanceComplete();                            // When a Dstore acknowledges its has completed its Dstore.
                 case Protocol.ERROR_FILE_DOES_NOT_EXISTS_TOKEN -> dstoreFileNotExist(messageArgs[1]);           // When a Dstore finds out it doesn't contain a given file during a remove process.
                 default -> System.err.println("Error: malformed message [" + String.join(" ", messageArgs) + "] recieved from [Port:" + connectedSocket.getPort() + "]."); // Malformed message is recieved.
             }
@@ -643,6 +664,14 @@ public class Controller {
 
             // Replaces the old value for files in the dstore with the new ones which where just retrieved.
             dstores.put(dstorePort, files);
+        }
+
+        /**
+         * Function which handles when a particular Dstore has completed its rebalance operation
+         */
+        private void dstoreRebalanceComplete() {
+            // Counts down the latch to show the controller that a Dstore has finished its rebalance.
+            rebalanceComplete.countDown();
         }
 
         /**
