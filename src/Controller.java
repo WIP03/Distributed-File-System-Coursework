@@ -5,7 +5,7 @@ import java.io.PrintWriter;
 import java.lang.reflect.Array;import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.sql.Time;import java.util.*;
+import java.net.UnknownHostException;import java.sql.Time;import java.util.*;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;import java.util.concurrent.ScheduledExecutorService;import java.util.concurrent.TimeUnit;import java.util.stream.Collectors;
 
@@ -172,8 +172,10 @@ public class Controller {
                 sendMessage(Protocol.LIST_TOKEN, null, dstoreSockets.get(store));
             }
             // Catches any issue that could occour when connecting to the Dstore.
-            catch (IOException exception) {
+            catch (Exception exception) {
                 System.err.println("Error: (" + exception + "), unable to join dstore.");
+                dstores.remove(store);
+                dstoreSockets.remove(store);
             }
         }
 
@@ -388,7 +390,7 @@ public class Controller {
             catch(Exception e) { System.err.println("Error: -------------------------" ); e.printStackTrace();}
 
             // If the thread is for a Dstore then it removes it from the list on disconnect to help with all operations (including rebalance).
-            finally { if (isDstore) {dstores.remove(dstorePort);} }
+            finally { if (isDstore) {dstores.remove(dstorePort); dstoreSockets.remove(dstorePort);} }
             System.out.println(controllerSocket.getLocalPort() + " PARSE DONE");
         }
 
@@ -583,22 +585,24 @@ public class Controller {
             fileLatches.put(filename, currentLatch);
 
             // Goes through all Dstores that contain the file and sends them a remove command for that file.
-            ArrayList<Integer> possibleDstores = new ArrayList<>();
-            dstores.forEach((store,files) -> {
-                if (files.contains(filename)) {
+            Set<Integer> dstoreNameSet = new HashSet<Integer>(dstores.keySet());
+            for (Integer store : dstoreNameSet) {
+                if (dstores.get(store).contains(filename)) {
                     // Creates the socket for the Dstore which has the file then sends a message to it letting it know that it should remove said file
                     try {
-                        sendMessage(Protocol.REMOVE_TOKEN, filename, dstoreSockets.get(dstorePort));
+                        sendMessage(Protocol.REMOVE_TOKEN, filename, dstoreSockets.get(store));
+                        System.out.println("Sent to store wanted: " + store + " Actual: " + dstoreSockets.get(store).getPort());
                     }
 
                     // Catches any issue that could occour when connecting to the Dstore.
-                    catch (IOException exception) {
+                    catch (Exception exception) {
                         System.err.println("Error: (" + exception + "), unable to join controller.");
-                        currentStoreRemoveCount -= 1;
-                        return;
+                        dstores.remove(store);
+                        //dstoreSockets.remove(store);
+                        fileLatches.get(filename).countDown();
                     }
                 }
-            });
+            }
 
             // Trys checking if all Dstores have recieved the message
             try {
@@ -653,8 +657,8 @@ public class Controller {
 
             // Adds it to the HashMap of Dstores ready to be updated when files are added.
             dstores.put(dstorePort, new ArrayList<String>());
-            try {dstoreSockets.put(dstorePort, new Socket(InetAddress.getLoopbackAddress(), dstorePort));}
-            catch (IOException exception) {System.err.println("Error: couldn't create socket for port '" + dstorePort + "'.");}
+            try { dstoreSockets.put(dstorePort, new Socket(InetAddress.getLocalHost(), dstorePort)); }
+            catch (Exception exception) {System.err.println("Error: can't create socket for port.");}
 
             // Rebalances the storage system as a new Dstore has joined.
             //synchronized (this) {storageRebalanceOperation();};

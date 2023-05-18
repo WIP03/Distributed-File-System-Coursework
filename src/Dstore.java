@@ -285,8 +285,6 @@ public class Dstore {
             // Try's to remove the connection of the socket as the file doesn't exitst/cant be loaded from the Dstore.
             catch (IOException exception) {
                 System.err.println("Error: unable to load file from Dstore with exception '" + exception + "'.");
-                try { connectedSocket.close(); }
-                catch (IOException exception1) { System.err.println("Error: cant close the threads socket."); }
             }
 
             // Try's to reset timeout for sending information to the clients stream as its no longer needed.
@@ -469,7 +467,7 @@ public class Dstore {
 
             // Try's to reset timeout for sending information to the dstore then closes its socket.
             finally{
-                try { socket.setSoTimeout(0); socket.close();}
+                try { socket.setSoTimeout(0); }
                 catch (Exception exception) { System.err.println("Error: unable to remove timeout from/close socket with other Dstore."); }
             }
 
