@@ -146,7 +146,7 @@ public class Controller {
         ArrayList<String> storedFiles = new ArrayList<>();
         dstores.values().forEach((arrayList) -> arrayList.forEach((value) -> { if(!storedFiles.contains(value)) {storedFiles.add(value);}; }));
 
-        // Removes indexes of files which are not in any dstore.
+        // Removes indexes of files which are not in any dstores.
         indexes.keySet().removeIf(file -> !(storedFiles.contains(file)));
 
         // Gets the files which needed to be removed from dstores (have files still but should have had a completed removal).
@@ -175,7 +175,21 @@ public class Controller {
             }
         }
 
-        //ALLOCATION CODE GOES HERE
+        //CREATE HashMap<String,ArrayList<Integer>>, POPULATE WITH FILES AND ARRAYLISTS (FIRST VALUE IS DSTORE FROM, REST IS TO).
+        /////FOR EACH FILES FIND FIRST DSTORE WHICH HAS IT AND ADD IT TO ARRAYLIST
+        /////INSIDE LOOP GET ALL DSTORES WHICH CONTAIN IT AND IT TO THE LOOP (IF ITS NOT THE FIRST ONE IN ARRAYLIST).
+
+        //CREATE HashMap<Integer,ArrayList<String>>, POPULATE WITH FILES TO DELETE FOR EACH DSTORE
+        /////FOR EACH STORE COMPARE THE NEW AND OLD DSTORES HASHMAPS VALUES, FILES IN OLD BUT NOT NEW ADD TO REMOVE HASHMAP.
+
+        //SEND REBALANCE COMMAND TO EACH DSTORE
+        /////FOR THE PORT GET EACH FILE IT NEEDS TO SEND AND ADD ON THE END THE NUMBER OF PORTS AND THERE VALUES
+        /////THEN IN LOOP FOR PORT INCLUDE ALL THE FILES WHICH NEED TO BE DELETED FROM THE DSTORE
+        /////AT THE END SEND THE MESSAGE
+
+        //ACKNOWLEDGE CODE US LATCHES.
+
+        //REMOVE FILES WHICH HAVE REMOVE COMPLETE INDEX
     }
 
     /**
